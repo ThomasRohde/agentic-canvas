@@ -1,0 +1,79 @@
+{
+  "name": "@trohde/agentic-canvas",
+  "version": "0.1.0",
+  "description": "Local-first Excalidraw canvas controlled by MCP tools.",
+  "type": "module",
+  "bin": {
+    "agentic-canvas": "dist/cli/index.js"
+  },
+  "files": ["dist", "CHANGELOG.md", "SECURITY.md"],
+  "author": "Thomas Klok Rohde <rohde.thomas@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ThomasRohde/agentic-canvas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ThomasRohde/agentic-canvas/issues"
+  },
+  "homepage": "https://github.com/ThomasRohde/agentic-canvas#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "excalidraw",
+    "canvas",
+    "whiteboard",
+    "agent",
+    "agent-tooling"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/cli/index.ts --no-open",
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "vite build",
+    "build:server": "tsup",
+    "start": "node dist/cli/index.js",
+    "verify": "npm run typecheck && npm run lint && npm test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version",
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "release:dry-run": "npm run verify && npm run build && npm run smoke:package && npm audit --omit=dev --audit-level=moderate && npm publish --dry-run",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run verify"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^4.21.2",
+    "open": "^10.2.0",
+    "ws": "^8.18.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@excalidraw/excalidraw": "^0.18.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.10",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

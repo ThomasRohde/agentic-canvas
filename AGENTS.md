@@ -1,0 +1,43 @@
+# AGENTS.md
+
+## Project purpose
+
+Agentic Canvas is a local-first, browser-based visual canvas that an AI agent controls through a local MCP server. The first canvas plugin embeds Excalidraw. A single `npx @trohde/agentic-canvas` process serves the browser app, hosts an MCP server over Streamable HTTP, and syncs the canvas to the browser over WebSocket.
+
+## Working rules
+
+- Make the smallest correct change.
+- Keep the first version simple; follow the stack and structure in `PLAN.md`.
+- Do not introduce new dependencies without a clear reason.
+- The Node server must NOT import `@excalidraw/excalidraw`; all Excalidraw runtime API usage lives in `src/web`.
+- Add or update tests for behavior changes.
+- Run the required verification commands before reporting completion.
+- Do not add features listed as Out of scope in `PLAN.md` (no auth, no DB, no stdio transport, no second plugin).
+
+## Commands
+
+- Install: `npm install`
+- Run locally: `npm run build && npm start -- --canvas excalidraw` (dev: `npm run dev`)
+- Test: `npm test`
+- Verify: `npm run verify`
+- Lint: `npm run lint` (fix: `npm run format`)
+- Typecheck: `npm run typecheck`
+- Build: `npm run build`
+- Package smoke: `npm run smoke:package`
+- Release dry run: `npm run release:dry-run`
+
+## Project conventions
+
+- Source code lives in `src/` (`cli`, `server`, `mcp`, `core`, `plugins`, `web`, `shared`).
+- Tests live in `tests/`.
+- The WS + scene wire contract lives in `src/shared/protocol.ts` (imported by Node AND the web bundle).
+- The published package is `@trohde/agentic-canvas`; the executable and MCP server name remain `agentic-canvas`.
+- Keep modules small and purpose-specific. Prefer explicit error handling (return `{ isError: true }` from tools) over silent failure.
+- Server logs to stderr only; keep stdout clean.
+
+## Definition of done
+
+- The app runs locally via `npm start` and opens a working Excalidraw canvas.
+- The first-version scope in `PLAN.md` is implemented (baseline + Excalidraw MCP tools, save/open/screenshot, live sync).
+- Relevant tests pass; `npm run typecheck` and `npm run lint` are clean.
+- `README.md` explains setup, usage, and verification, and its commands work.
