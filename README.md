@@ -8,7 +8,7 @@ Executable: `agentic-canvas`
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 20.19 or newer
 - npm
 - A modern browser
 - An MCP-capable client, such as Claude Code or Claude Desktop
