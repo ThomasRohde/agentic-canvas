@@ -5,6 +5,7 @@ import type { ExcalidrawElement } from "../core/scene.js";
 import {
   type ExportRequestMessage,
   type SelectionRequestMessage,
+  type SelectionSetRequestMessage,
   type ServerToBrowserMessage,
   parseBrowserMessage,
 } from "../shared/protocol.js";
@@ -28,6 +29,10 @@ export interface BrowserSelection {
   selectedIds: string[];
 }
 
+export interface BrowserSelectionSet {
+  selectedIds: string[];
+}
+
 interface PendingExport {
   resolve(value: BrowserExport): void;
   reject(error: Error): void;
@@ -40,16 +45,24 @@ interface PendingSelection {
   timer: NodeJS.Timeout;
 }
 
+interface PendingSelectionSet {
+  resolve(value: BrowserSelectionSet): void;
+  reject(error: Error): void;
+  timer: NodeJS.Timeout;
+}
+
 interface ClientState {
   socket: WebSocket;
   lastSyncedOrder: number;
   lastSyncedVersion: number;
+  supportsSelectionSet: boolean;
 }
 
 export class WsBridge {
   private readonly clients = new Map<WebSocket, ClientState>();
   private readonly pendingExports = new Map<string, PendingExport>();
   private readonly pendingSelections = new Map<string, PendingSelection>();
+  private readonly pendingSelectionSets = new Map<string, PendingSelectionSet>();
   private syncOrder = 0;
   private wss?: WebSocketServer;
 
@@ -135,6 +148,38 @@ export class WsBridge {
     });
   }
 
+  requestSetSelection(
+    selectedIds: string[],
+    options: SelectionOptions = {},
+  ): Promise<BrowserSelectionSet> {
+    const client = this.mostRecentlySyncedClient((candidate) => candidate.supportsSelectionSet);
+    if (!client) {
+      if (this.connectedClientCount() > 0) {
+        return Promise.reject(
+          new Error("No browser canvas client supports programmatic selection"),
+        );
+      }
+      return Promise.reject(new Error("No browser canvas client is connected"));
+    }
+
+    const id = randomUUID();
+    const request: SelectionSetRequestMessage = {
+      type: "selection:set",
+      id,
+      selectedIds,
+    };
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingSelectionSets.delete(id);
+        reject(new Error("Selection set timed out"));
+      }, options.timeoutMs ?? 5000);
+
+      this.pendingSelectionSets.set(id, { resolve, reject, timer });
+      client.socket.send(JSON.stringify(request));
+    });
+  }
+
   close(): void {
     for (const { socket } of this.clients.values()) {
       socket.close();
@@ -147,6 +192,7 @@ export class WsBridge {
       socket,
       lastSyncedOrder: 0,
       lastSyncedVersion: -1,
+      supportsSelectionSet: false,
     });
     socket.on("message", (data) => this.handleMessage(socket, data.toString()));
     socket.on("close", () => {
@@ -162,6 +208,10 @@ export class WsBridge {
     }
 
     if (message.type === "hello") {
+      const client = this.clients.get(socket);
+      if (client) {
+        client.supportsSelectionSet = Boolean(message.capabilities?.selectionSet);
+      }
       this.sendScene(socket, this.controller.getSnapshot());
       return;
     }
@@ -211,6 +261,22 @@ export class WsBridge {
       } else {
         pending.reject(new Error(message.message));
       }
+      return;
+    }
+
+    if (message.type === "selection:set:result" || message.type === "selection:set:error") {
+      const pending = this.pendingSelectionSets.get(message.id);
+      if (!pending) {
+        return;
+      }
+
+      clearTimeout(pending.timer);
+      this.pendingSelectionSets.delete(message.id);
+      if (message.type === "selection:set:result") {
+        pending.resolve({ selectedIds: message.selectedIds });
+      } else {
+        pending.reject(new Error(message.message));
+      }
     }
   }
 
@@ -241,9 +307,11 @@ export class WsBridge {
     client.lastSyncedVersion = version;
   }
 
-  private mostRecentlySyncedClient(): ClientState | undefined {
+  private mostRecentlySyncedClient(
+    predicate: (client: ClientState) => boolean = () => true,
+  ): ClientState | undefined {
     return [...this.clients.values()]
-      .filter((candidate) => candidate.socket.readyState === WebSocket.OPEN)
+      .filter((candidate) => candidate.socket.readyState === WebSocket.OPEN && predicate(candidate))
       .sort((left, right) => right.lastSyncedOrder - left.lastSyncedOrder)[0];
   }
 }

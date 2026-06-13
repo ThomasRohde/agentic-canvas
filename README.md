@@ -40,7 +40,7 @@ Flags:
 - `--workspace <dir>`: root for save/open/screenshot files, default current directory
 - `--open` / `--no-open`: open the browser on startup, default open
 
-Optional environment overrides are `AGENTIC_CANVAS_PORT`, `AGENTIC_CANVAS_HOST`, and `AGENTIC_CANVAS_WORKSPACE`. No secrets or `.env` file are required.
+Optional environment overrides are `AGENTIC_CANVAS_PORT`, `AGENTIC_CANVAS_HOST`, and `AGENTIC_CANVAS_WORKSPACE`. `save_canvas`, `open_canvas`, and screenshot file writes are constrained to the configured workspace root. No secrets or `.env` file are required.
 
 ## Develop
 
@@ -73,9 +73,10 @@ Example tool flow:
 
 1. Call `draw_rectangle` with `{ "x": 100, "y": 100, "width": 200, "height": 120, "text": "Hello" }`; a labeled rectangle appears in the browser.
 2. Select the rectangle in the browser and call `get_selected_objects`; the tool returns the selected normalized object.
-3. Call `screenshot`; the tool returns a PNG image.
-4. Call `save_canvas` with `{ "path": "demo.excalidraw" }`; the file is written inside the workspace.
-5. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo.excalidraw" }`; the saved scene is restored.
+3. Call `select_objects` with the rectangle id to select it from the MCP client.
+4. Call `screenshot`; the tool returns a PNG image.
+5. Call `save_canvas` with `{ "path": "demo.excalidraw" }`; the file is written inside the workspace.
+6. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo.excalidraw" }`; the saved scene is restored.
 
 ## Test And Build
 
@@ -114,8 +115,10 @@ npm run inspect:mcp
 4. Confirm the shapes appear live in the browser.
 5. Call `save_canvas`, `clear_canvas`, and `open_canvas`; confirm the scene clears and reloads.
 6. Select a shape in the browser, then call `get_selected_objects`; confirm the selected object id is returned.
-7. Call `screenshot`; confirm a PNG is returned and, when `path` is provided, written in the workspace.
-8. Drag or edit a shape by hand in the browser, then call `list_objects`; confirm the listing reflects the human edit.
+7. Call `select_objects`; confirm the browser selection changes.
+8. Call `undo` and `redo`; confirm the browser scene follows the server history.
+9. Call `screenshot`; confirm a PNG is returned and, when `path` is provided, written in the workspace.
+10. Drag or edit a shape by hand in the browser, then call `list_objects`; confirm the listing reflects the human edit.
 
 ## Release Checks
 
@@ -156,5 +159,5 @@ scripts/                 Release and package smoke scripts
 - HTTP MCP transport only; no stdio transport in v1.
 - Single browser session is the expected mode.
 - Full-scene sync is used instead of diffs or CRDT collaboration.
-- Screenshot and selected-object lookup require a connected browser.
+- Screenshot and selection tools require a connected browser.
 - The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, save/open, and screenshot.

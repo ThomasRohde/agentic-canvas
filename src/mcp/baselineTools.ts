@@ -8,7 +8,12 @@ import type {
 } from "../core/scene.js";
 import type { CanvasController } from "../server/canvasController.js";
 import type { Workspace } from "../server/workspace.js";
-import { canvasObjectTypeSchema, createObjectShape, updateObjectShape } from "./schemas.js";
+import {
+  canvasObjectTypeSchema,
+  colorSchema,
+  createObjectShape,
+  updateObjectShape,
+} from "./schemas.js";
 
 export interface ExportResult {
   mimeType: string;
@@ -19,12 +24,20 @@ export interface SelectionResult {
   selectedIds: string[];
 }
 
+export interface SelectionSetResult {
+  selectedIds: string[];
+}
+
 export interface BaselineToolContext {
   controller: CanvasController;
   workspace: Workspace;
   clientsConnected(): number;
   requestExport(options: { exportPadding?: number }): Promise<ExportResult>;
   requestSelection(options?: { timeoutMs?: number }): Promise<SelectionResult>;
+  requestSetSelection(
+    selectedIds: string[],
+    options?: { timeoutMs?: number },
+  ): Promise<SelectionSetResult>;
 }
 
 export function registerBaselineTools(server: McpServer, context: BaselineToolContext): void {
@@ -136,6 +149,22 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
   );
 
   server.registerTool(
+    "set_canvas_background",
+    {
+      description: "Set the canvas background color.",
+      inputSchema: {
+        color: colorSchema,
+      },
+    },
+    async ({ color }) => {
+      context.controller.mutateScene((scene) => {
+        scene.appState.viewBackgroundColor = color;
+      });
+      return textResult({ viewBackgroundColor: color });
+    },
+  );
+
+  server.registerTool(
     "open_canvas",
     {
       description: "Open a .excalidraw file from inside the workspace.",
@@ -215,6 +244,61 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
       } catch (error) {
         return errorResult(error);
       }
+    },
+  );
+
+  server.registerTool(
+    "select_objects",
+    {
+      description: "Select existing objects in the connected browser.",
+      inputSchema: {
+        ids: z.array(z.string()),
+      },
+    },
+    async ({ ids }) => {
+      try {
+        const selectedIds: string[] = [];
+        const missingIds: string[] = [];
+        for (const id of ids) {
+          if (context.controller.getObject(id)) {
+            selectedIds.push(id);
+          } else {
+            missingIds.push(id);
+          }
+        }
+
+        const result = await context.requestSetSelection(selectedIds);
+        return textResult({
+          selectedIds: result.selectedIds,
+          missingIds,
+        });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "undo",
+    {
+      description: "Undo the most recent authoritative scene change.",
+      inputSchema: {},
+    },
+    async () => {
+      const undone = context.controller.undo();
+      return textResult({ version: context.controller.currentVersion(), undone });
+    },
+  );
+
+  server.registerTool(
+    "redo",
+    {
+      description: "Redo the most recently undone authoritative scene change.",
+      inputSchema: {},
+    },
+    async () => {
+      const redone = context.controller.redo();
+      return textResult({ version: context.controller.currentVersion(), redone });
     },
   );
 }

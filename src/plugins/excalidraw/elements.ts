@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import type {
   BoundElement,
   CanvasObjectType,
-  CanvasStyle,
   CreateObjectSpec,
   ElementBinding,
   ExcalidrawElement,
 } from "../../core/scene.js";
+import { measureTextBounds } from "./textMetrics.js";
 
 const DEFAULT_WIDTH = 160;
 const DEFAULT_HEIGHT = 80;
@@ -63,18 +63,20 @@ export function buildElement(
   };
 
   if (type === "text") {
+    const text = options.text ?? spec.text ?? "";
+    const bounds = measureTextBounds(text, spec.style);
     return {
       ...base,
-      width: spec.width ?? Math.max(40, (options.text ?? spec.text ?? "").length * 10),
-      height: spec.height ?? spec.style?.fontSize ?? 24,
-      text: options.text ?? spec.text ?? "",
-      originalText: options.text ?? spec.text ?? "",
-      fontSize: spec.style?.fontSize ?? 20,
+      width: spec.width ?? bounds.width,
+      height: spec.height ?? bounds.height,
+      text,
+      originalText: text,
+      fontSize: bounds.fontSize,
       fontFamily: 1,
       textAlign: spec.style?.textAlign ?? "center",
       verticalAlign: "middle",
       containerId: options.containerId ?? spec.containerId ?? null,
-      lineHeight: 1.25,
+      lineHeight: bounds.lineHeight,
       autoResize: true,
     };
   }

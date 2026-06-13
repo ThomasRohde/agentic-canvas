@@ -28,6 +28,7 @@ export interface FlowchartPlan {
 }
 
 export function planFlowchart(input: FlowchartInput): FlowchartPlan {
+  validateFlowchart(input);
   const direction = input.direction ?? "LR";
   const spacingX = input.spacingX ?? 220;
   const spacingY = input.spacingY ?? 140;
@@ -62,9 +63,10 @@ export function planFlowchart(input: FlowchartInput): FlowchartPlan {
 
 function assignLevels(input: FlowchartInput): Map<string, number> {
   const nodeIds = new Set(input.nodes.map((node) => node.id));
+  const backEdges = findBackEdges(input);
   const indegrees = new Map(input.nodes.map((node) => [node.id, 0]));
   for (const edge of input.edges) {
-    if (nodeIds.has(edge.to)) {
+    if (nodeIds.has(edge.to) && !backEdges.has(edgeKey(edge))) {
       indegrees.set(edge.to, (indegrees.get(edge.to) ?? 0) + 1);
     }
   }
@@ -78,6 +80,10 @@ function assignLevels(input: FlowchartInput): Map<string, number> {
   for (let pass = 0; pass < input.nodes.length; pass += 1) {
     let changed = false;
     for (const edge of input.edges) {
+      if (backEdges.has(edgeKey(edge))) {
+        continue;
+      }
+
       const fromLevel = levels.get(edge.from);
       if (fromLevel === undefined || !nodeIds.has(edge.to)) {
         continue;
@@ -118,4 +124,61 @@ function groupLevels(
 
 function peerOffset(index: number, count: number, spacing: number): number {
   return (index - (count - 1) / 2) * spacing;
+}
+
+function validateFlowchart(input: FlowchartInput): void {
+  const nodeIds = new Set<string>();
+  for (const node of input.nodes) {
+    if (nodeIds.has(node.id)) {
+      throw new Error(`Duplicate flowchart node id: ${node.id}`);
+    }
+    nodeIds.add(node.id);
+  }
+
+  for (const edge of input.edges) {
+    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
+      throw new Error(`Flowchart edge references missing node: ${edge.from} -> ${edge.to}`);
+    }
+  }
+}
+
+function findBackEdges(input: FlowchartInput): Set<string> {
+  const adjacency = new Map<string, FlowchartEdgeInput[]>();
+  for (const edge of input.edges) {
+    adjacency.set(edge.from, [...(adjacency.get(edge.from) ?? []), edge]);
+  }
+
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const backEdges = new Set<string>();
+
+  const visit = (nodeId: string) => {
+    if (visiting.has(nodeId)) {
+      return;
+    }
+    if (visited.has(nodeId)) {
+      return;
+    }
+
+    visiting.add(nodeId);
+    for (const edge of adjacency.get(nodeId) ?? []) {
+      if (visiting.has(edge.to)) {
+        backEdges.add(edgeKey(edge));
+        continue;
+      }
+      visit(edge.to);
+    }
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+  };
+
+  for (const node of input.nodes) {
+    visit(node.id);
+  }
+
+  return backEdges;
+}
+
+function edgeKey(edge: Pick<FlowchartEdgeInput, "from" | "to">): string {
+  return `${edge.from}\u0000${edge.to}`;
 }

@@ -6,15 +6,21 @@ export type BrowserToServerMessage =
   | ExportResultMessage
   | ExportErrorMessage
   | SelectionResultMessage
-  | SelectionErrorMessage;
+  | SelectionErrorMessage
+  | SelectionSetResultMessage
+  | SelectionSetErrorMessage;
 
 export type ServerToBrowserMessage =
   | SceneSetMessage
   | ExportRequestMessage
-  | SelectionRequestMessage;
+  | SelectionRequestMessage
+  | SelectionSetRequestMessage;
 
 export interface HelloMessage {
   type: "hello";
+  capabilities?: {
+    selectionSet?: boolean;
+  };
 }
 
 export interface SceneChangedMessage {
@@ -50,6 +56,18 @@ export interface SelectionErrorMessage {
   message: string;
 }
 
+export interface SelectionSetResultMessage {
+  type: "selection:set:result";
+  id: string;
+  selectedIds: string[];
+}
+
+export interface SelectionSetErrorMessage {
+  type: "selection:set:error";
+  id: string;
+  message: string;
+}
+
 export interface SceneSetMessage {
   type: "scene:set";
   version: number;
@@ -68,6 +86,12 @@ export interface ExportRequestMessage {
 export interface SelectionRequestMessage {
   type: "selection:request";
   id: string;
+}
+
+export interface SelectionSetRequestMessage {
+  type: "selection:set";
+  id: string;
+  selectedIds: string[];
 }
 
 export function parseBrowserMessage(data: string): BrowserToServerMessage | undefined {

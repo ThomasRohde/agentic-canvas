@@ -1,6 +1,6 @@
 {
   "name": "@trohde/agentic-canvas",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local-first Excalidraw canvas controlled by MCP tools.",
   "type": "module",
   "bin": {

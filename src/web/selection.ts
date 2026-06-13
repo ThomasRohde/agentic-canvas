@@ -24,3 +24,7 @@ export function selectedIdsFromAppState(appState: unknown): string[] {
     .filter(([, selected]) => selected === true)
     .map(([id]) => id);
 }
+
+export function selectedElementIdsForIds(ids: string[]): Record<string, true> {
+  return Object.fromEntries(ids.map((id) => [id, true]));
+}

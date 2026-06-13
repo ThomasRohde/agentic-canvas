@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.0 - 2026-06-13
+
+- Added browser-backed `select_objects`, shared `set_canvas_background`, and in-memory `undo`/`redo` MCP tools.
+- Added Excalidraw `ungroup_objects` and `remove_from_frame` tools.
+- Hardened object validation, grouping, deletion reporting, flowchart planning, and derived label/arrow geometry after edits.
+- Added WebSocket support for programmatic selection and expanded MCP, plugin, controller, and WebSocket tests.
+
 ## 0.1.1 - 2026-06-13
 
 - Patch release to verify GitHub Actions trusted publishing after the first npm publication.

@@ -57,6 +57,8 @@ object calls, such as assigning frame membership or grouping native elements.
 
 Use `transaction` when a tool performs more than one scene mutation. Without a
 transaction, each mutation increments the scene version and broadcasts separately.
+Transactions are atomic: if the callback throws, the controller restores the scene
+to its pre-transaction snapshot and does not broadcast partial changes.
 
 ## Scene And Serialization
 
@@ -257,6 +259,10 @@ Baseline tools provided for every plugin:
 - `open_canvas`
 - `screenshot`
 - `get_selected_objects`
+- `select_objects`
+- `set_canvas_background`
+- `undo`
+- `redo`
 
 `get_selected_objects` has no input arguments. It asks the connected browser for the
 current UI selection, resolves those ids through `CanvasController`, and returns JSON
@@ -275,6 +281,14 @@ Selection is live browser state, not authoritative scene state. If the browser
 reports ids that no longer exist in the server scene, they are returned in
 `missingIds`. An empty selection returns empty arrays. No connected browser, browser
 errors, and request timeouts are returned as MCP `isError` results.
+
+`select_objects` accepts `{ ids: string[] }`, filters ids through the authoritative
+scene, sends existing ids to the connected browser, and returns `{ selectedIds,
+missingIds }`. It does not mutate the scene version.
+
+`set_canvas_background` accepts a validated canvas color string and updates
+`Scene.appState.viewBackgroundColor`. `undo` and `redo` operate on the controller's
+bounded in-memory scene history and are not persisted across process restarts.
 
 Plugin tools must not redefine baseline tool names. Use plugin-specific names for
 engine-native operations and higher-level workflows.

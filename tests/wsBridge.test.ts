@@ -160,6 +160,65 @@ describe("WsBridge", () => {
     socket.close();
   });
 
+  it("performs selection set request and result round-trip", async () => {
+    const socket = await openSocket(url);
+    const hello = readUntil(socket, "scene:set");
+    socket.send(JSON.stringify({ type: "hello", capabilities: { selectionSet: true } }));
+    await hello;
+
+    const requestPromise = readUntil(socket, "selection:set");
+    const selectionPromise = bridge.requestSetSelection(["one", "two"], { timeoutMs: 1000 });
+    const request = await requestPromise;
+    expect(request.selectedIds).toEqual(["one", "two"]);
+
+    socket.send(
+      JSON.stringify({
+        type: "selection:set:result",
+        id: request.id,
+        selectedIds: ["one", "two"],
+      }),
+    );
+
+    await expect(selectionPromise).resolves.toEqual({ selectedIds: ["one", "two"] });
+    socket.close();
+  });
+
+  it("rejects selection set requests when the browser reports an error", async () => {
+    const socket = await openSocket(url);
+    const hello = readUntil(socket, "scene:set");
+    socket.send(JSON.stringify({ type: "hello", capabilities: { selectionSet: true } }));
+    await hello;
+
+    const requestPromise = readUntil(socket, "selection:set");
+    const selectionPromise = bridge.requestSetSelection(["one"], { timeoutMs: 1000 });
+    const request = await requestPromise;
+
+    socket.send(
+      JSON.stringify({
+        type: "selection:set:error",
+        id: request.id,
+        message: "selection set unavailable",
+      }),
+    );
+
+    await expect(selectionPromise).rejects.toThrow(/selection set unavailable/);
+    socket.close();
+  });
+
+  it("times out selection set requests when the browser does not respond", async () => {
+    const socket = await openSocket(url);
+    const hello = readUntil(socket, "scene:set");
+    socket.send(JSON.stringify({ type: "hello", capabilities: { selectionSet: true } }));
+    await hello;
+
+    const requestPromise = readUntil(socket, "selection:set");
+    const selectionPromise = bridge.requestSetSelection(["one"], { timeoutMs: 10 });
+    await requestPromise;
+
+    await expect(selectionPromise).rejects.toThrow(/Selection set timed out/);
+    socket.close();
+  });
+
   it("times out selection requests when the browser does not respond", async () => {
     const socket = await openSocket(url);
     const hello = readUntil(socket, "scene:set");
@@ -241,6 +300,39 @@ describe("WsBridge", () => {
     second.close();
   });
 
+  it("sends selection set requests to the most recently synced browser client", async () => {
+    const first = await openSocket(url);
+    const firstHello = readUntil(first, "scene:set");
+    first.send(JSON.stringify({ type: "hello" }));
+    await firstHello;
+
+    const firstBroadcast = readUntil(first, "scene:set");
+    controller.createObject({ type: "rectangle", x: 0, y: 0 });
+    await firstBroadcast;
+    const second = await openSocket(url);
+    const secondHello = readUntil(second, "scene:set");
+    second.send(JSON.stringify({ type: "hello", capabilities: { selectionSet: true } }));
+    await secondHello;
+
+    const firstUnexpectedRequest = readWithTimeout(first, 100);
+    const secondRequest = readUntil(second, "selection:set");
+    const selectionPromise = bridge.requestSetSelection(["latest"], { timeoutMs: 1000 });
+    const request = await secondRequest;
+
+    second.send(
+      JSON.stringify({
+        type: "selection:set:result",
+        id: request.id,
+        selectedIds: ["latest"],
+      }),
+    );
+
+    await expect(firstUnexpectedRequest).rejects.toThrow(/timeout/);
+    await expect(selectionPromise).resolves.toEqual({ selectedIds: ["latest"] });
+    first.close();
+    second.close();
+  });
+
   it("rejects export when no browser is connected", async () => {
     await expect(bridge.requestExport({ timeoutMs: 10 })).rejects.toThrow(
       /No browser canvas client/,
@@ -251,6 +343,24 @@ describe("WsBridge", () => {
     await expect(bridge.requestSelection({ timeoutMs: 10 })).rejects.toThrow(
       /No browser canvas client/,
     );
+  });
+
+  it("rejects selection set when no browser is connected", async () => {
+    await expect(bridge.requestSetSelection([], { timeoutMs: 10 })).rejects.toThrow(
+      /No browser canvas client/,
+    );
+  });
+
+  it("rejects selection set when connected browsers have not advertised support", async () => {
+    const socket = await openSocket(url);
+    const hello = readUntil(socket, "scene:set");
+    socket.send(JSON.stringify({ type: "hello" }));
+    await hello;
+
+    await expect(bridge.requestSetSelection([], { timeoutMs: 10 })).rejects.toThrow(
+      /supports programmatic selection/,
+    );
+    socket.close();
   });
 });
 

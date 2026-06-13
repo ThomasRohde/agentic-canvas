@@ -161,16 +161,20 @@ Baseline tools are registered for every plugin:
 - `open_canvas`
 - `screenshot`
 - `get_selected_objects`
+- `select_objects`
+- `set_canvas_background`
+- `undo`
+- `redo`
 
 Plugin tools are optional and engine-specific. Excalidraw currently adds tools such
-as `draw_rectangle`, `draw_arrow`, `create_frame`, `group_objects`, and
-`create_flowchart`.
+as `draw_rectangle`, `draw_arrow`, `create_frame`, `group_objects`,
+`ungroup_objects`, `remove_from_frame`, and `create_flowchart`.
 
 Use baseline tools for common object operations. Add plugin tools only when they
 provide a better engine-native workflow or a higher-level operation.
-Plugin authors do not implement `get_selected_objects` on the Node side; browser
-code reports selected ids and the shared baseline tool resolves them through
-`CanvasController`.
+Plugin authors do not implement `get_selected_objects` or `select_objects` on the
+Node side; browser code reads or applies selected ids and the shared baseline tools
+resolve ids through `CanvasController`.
 
 ## Verification Checklist
 
@@ -183,6 +187,7 @@ Before considering a plugin ready:
 - Browser sync can display the native scene and accept browser-origin changes.
 - Screenshot works through a connected browser client.
 - `get_selected_objects` returns normalized objects for a browser selection.
+- `select_objects` updates browser selection for existing server-side ids.
 - Node-side plugin code does not import browser-only canvas packages.
 
 Run:

@@ -39,4 +39,34 @@ describe("CanvasController", () => {
     expect(controller.currentVersion()).toBe(versionBeforeOpen + 1);
     expect(controller.listObjects()).toHaveLength(1);
   });
+
+  it("rolls back failed transactions without notifying", () => {
+    const controller = new CanvasController(createExcalidrawPlugin());
+    const snapshots: SceneSnapshot[] = [];
+    controller.setChangeListener((snapshot) => {
+      snapshots.push(snapshot);
+    });
+
+    expect(() =>
+      controller.transaction(() => {
+        controller.createObject({ type: "rectangle", x: 0, y: 0 });
+        throw new Error("stop");
+      }),
+    ).toThrow(/stop/);
+
+    expect(controller.listObjects()).toEqual([]);
+    expect(snapshots).toEqual([]);
+    expect(controller.currentVersion()).toBe(0);
+  });
+
+  it("supports bounded in-memory undo and redo", () => {
+    const controller = new CanvasController(createExcalidrawPlugin());
+    const rectangle = controller.createObject({ type: "rectangle", x: 0, y: 0 });
+    controller.updateObject(rectangle.id, { x: 100 });
+
+    expect(controller.undo()).toBe(true);
+    expect(controller.getObject(rectangle.id)?.x).toBe(0);
+    expect(controller.redo()).toBe(true);
+    expect(controller.getObject(rectangle.id)?.x).toBe(100);
+  });
 });

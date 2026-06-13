@@ -27,13 +27,15 @@ describe("Excalidraw plugin baseline ops", () => {
 
     plugin.updateObject(scene, created.id, { x: 30, text: "Updated" });
     expect(plugin.getObject(scene, created.id)?.x).toBe(30);
-    expect(plugin.listObjects(scene, "text")[0]?.text).toBe("Updated");
+    const updatedLabel = plugin.listObjects(scene, "text")[0];
+    expect(updatedLabel?.text).toBe("Updated");
+    expect(updatedLabel?.x).toBe(30);
 
     const serialized = plugin.serialize(scene);
     const reopened = plugin.deserialize(JSON.stringify(serialized));
     expect(plugin.listObjects(reopened).length).toBe(2);
 
-    expect(plugin.deleteObjects(scene, [created.id])).toEqual([created.id]);
+    expect(plugin.deleteObjects(scene, [created.id])).toEqual([created.id, label?.id]);
     expect(plugin.listObjects(scene).map((object) => object.type)).toEqual([]);
 
     plugin.createObject(scene, { type: "ellipse", x: 0, y: 0 });
@@ -57,5 +59,112 @@ describe("Excalidraw plugin baseline ops", () => {
     expect(frame.raw.name).toBe("Group");
     expect(plugin.listObjects(scene).map((object) => object.type)).toEqual(["frame"]);
     expect(plugin.listObjects(scene, "text")).toEqual([]);
+  });
+
+  it("recomputes bound labels and arrows after updates", () => {
+    const plugin = createExcalidrawPlugin();
+    const scene = plugin.createInitialScene();
+    const rectangle = plugin.createObject(scene, {
+      type: "rectangle",
+      x: 100,
+      y: 100,
+      width: 160,
+      height: 80,
+      text: "Label",
+    });
+    const label = plugin.listObjects(scene, "text")[0];
+
+    plugin.updateObject(scene, rectangle.id, { x: 400, y: 400, width: 200, height: 100 });
+    const movedLabel = plugin.getObject(scene, label.id);
+    expect(movedLabel?.x).toBe(400);
+    expect(movedLabel?.y).toBeCloseTo(437.5);
+    expect(movedLabel?.width).toBe(200);
+
+    const left = plugin.createObject(scene, {
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+    });
+    const right = plugin.createObject(scene, {
+      type: "rectangle",
+      x: 400,
+      y: 0,
+      width: 100,
+      height: 100,
+    });
+    const arrow = plugin.createObject(scene, {
+      type: "arrow",
+      x: 0,
+      y: 0,
+      start: { elementId: left.id },
+      end: { elementId: right.id },
+      text: "to",
+    });
+    const originalArrow = plugin.getObject(scene, arrow.id);
+
+    plugin.updateObject(scene, left.id, { y: 300 });
+    const movedArrow = plugin.getObject(scene, arrow.id);
+    expect(movedArrow?.raw.startBinding?.elementId).toBe(left.id);
+    expect(movedArrow?.raw.endBinding?.elementId).toBe(right.id);
+    expect(movedArrow?.y).not.toBe(originalArrow?.y);
+    expect(movedArrow?.points).not.toEqual(originalArrow?.points);
+    const arrowLabel = plugin.listObjects(scene, "text").find((object) => object.text === "to");
+    expect(plugin.getObject(scene, arrowLabel?.id ?? "")?.containerId).toBe(arrow.id);
+    expect(arrowLabel?.x).not.toBe(originalArrow?.x);
+  });
+
+  it("measures standalone text using font size and multiline height", () => {
+    const plugin = createExcalidrawPlugin();
+    const scene = plugin.createInitialScene();
+    const small = plugin.createObject(scene, {
+      type: "text",
+      x: 0,
+      y: 0,
+      text: "WWWWWWWWWW",
+      style: { fontSize: 20 },
+    });
+    const large = plugin.createObject(scene, {
+      type: "text",
+      x: 0,
+      y: 80,
+      text: "WWWWWWWWWW",
+      style: { fontSize: 40 },
+    });
+    const multiline = plugin.createObject(scene, {
+      type: "text",
+      x: 0,
+      y: 160,
+      text: "line one\nline two longer\nl3",
+    });
+
+    expect(large.width).toBeGreaterThan(small.width);
+    expect(multiline.height).toBe(75);
+  });
+
+  it("rejects invalid text, color, and degenerate geometry", () => {
+    const plugin = createExcalidrawPlugin();
+    const scene = plugin.createInitialScene();
+
+    expect(() => plugin.createObject(scene, { type: "text", x: 0, y: 0, text: "" })).toThrow(
+      /Text must not be empty/,
+    );
+    expect(() =>
+      plugin.createObject(scene, {
+        type: "rectangle",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        style: { strokeColor: "banana" },
+      }),
+    ).toThrow(/Invalid strokeColor/);
+    expect(() =>
+      plugin.createObject(scene, { type: "line", x: 0, y: 0, points: [[0, 0]] }),
+    ).toThrow(/at least two points/);
+    expect(() =>
+      plugin.createObject(scene, { type: "rectangle", x: 0, y: 0, width: 0, height: 80 }),
+    ).toThrow(/Width must be greater than zero/);
   });
 });

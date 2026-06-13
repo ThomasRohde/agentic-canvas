@@ -14,11 +14,13 @@ flowchart LR
 
 The canonical scene is a plain Excalidraw element array plus app state and files held by `CanvasController`. MCP tools mutate the scene through the active `CanvasPlugin`; browser edits replace the scene through the WebSocket bridge. Save/open/screenshot file writes go through `Workspace`, which rejects paths outside the configured root.
 
-Some baseline tools need live browser state. `screenshot` and `get_selected_objects`
-send correlated WebSocket requests to the most recently synced browser client and
-return clear MCP errors when no browser is connected or the browser does not respond.
-Selection is queried on demand from the browser UI state, then resolved against the
-server-authoritative scene before MCP clients receive normalized objects.
+Some baseline tools need live browser state. `screenshot`, `get_selected_objects`,
+and `select_objects` send correlated WebSocket requests to the most recently synced
+browser client and return clear MCP errors when no browser is connected or the
+browser does not respond. Read selection is queried on demand from the browser UI
+state, then resolved against the server-authoritative scene before MCP clients
+receive normalized objects. Write selection sends server-resolved ids back to the
+browser without making selection part of the authoritative scene.
 
 The Node side never imports `@excalidraw/excalidraw`. Runtime Excalidraw APIs are isolated to `src/web`.
 

@@ -6,7 +6,7 @@ import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { CanvasController } from "../src/server/canvasController.js";
 import { Workspace } from "../src/server/workspace.js";
-import { connectInMemory, jsonContent } from "./helpers.js";
+import { connectInMemory, jsonContent, textContent } from "./helpers.js";
 
 describe("Excalidraw-specific MCP tools", () => {
   let root: string;
@@ -33,6 +33,7 @@ describe("Excalidraw-specific MCP tools", () => {
         throw new Error("No browser canvas client is connected");
       },
       requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (selectedIds) => ({ selectedIds }),
     });
     const { client, close } = await connectInMemory(server);
 
@@ -95,13 +96,32 @@ describe("Excalidraw-specific MCP tools", () => {
       expect(frame.childIds).toEqual([rectangle.id, ellipse.id]);
       expect(controller.getObject(rectangle.id)?.raw.frameId).toBe(frame.id);
 
-      const group = jsonContent<{ groupId: string }>(
+      const group = jsonContent<{ groupId: string; ids: string[] }>(
         await client.callTool({
           name: "group_objects",
           arguments: { ids: [rectangle.id, ellipse.id] },
         }),
       );
+      expect(group.ids).toEqual([rectangle.id, ellipse.id]);
       expect(controller.getObject(rectangle.id)?.groupIds).toContain(group.groupId);
+
+      const ungroup = jsonContent<{ ids: string[]; groupId: string }>(
+        await client.callTool({
+          name: "ungroup_objects",
+          arguments: { ids: [rectangle.id, ellipse.id], groupId: group.groupId },
+        }),
+      );
+      expect(ungroup.ids).toEqual([rectangle.id, ellipse.id]);
+      expect(controller.getObject(rectangle.id)?.groupIds).not.toContain(group.groupId);
+
+      const removed = jsonContent<{ ids: string[] }>(
+        await client.callTool({
+          name: "remove_from_frame",
+          arguments: { ids: [rectangle.id] },
+        }),
+      );
+      expect(removed.ids).toEqual([rectangle.id]);
+      expect(controller.getObject(rectangle.id)?.frameId).toBeNull();
     } finally {
       await close();
     }
@@ -119,6 +139,7 @@ describe("Excalidraw-specific MCP tools", () => {
         throw new Error("No browser canvas client is connected");
       },
       requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (selectedIds) => ({ selectedIds }),
     });
     const { client, close } = await connectInMemory(server);
 
@@ -158,6 +179,114 @@ describe("Excalidraw-specific MCP tools", () => {
         const connector = controller.getObject(labelObject?.containerId ?? "");
         expect(connector?.raw.boundElements).toContainEqual({ id: label.id, type: "text" });
       }
+    } finally {
+      await close();
+    }
+  });
+
+  it("keeps cyclic flowcharts compact and rejects bad edges atomically", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const server = buildMcpServer({
+      plugin,
+      controller,
+      workspace,
+      clientsConnected: () => 0,
+      requestExport: async () => {
+        throw new Error("No browser canvas client is connected");
+      },
+      requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (selectedIds) => ({ selectedIds }),
+    });
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const result = jsonContent<{ nodeIds: Record<string, string>; arrowIds: string[] }>(
+        await client.callTool({
+          name: "create_flowchart",
+          arguments: {
+            direction: "TB",
+            nodes: [
+              { id: "start", label: "Start" },
+              { id: "work", label: "Work" },
+              { id: "ok", label: "OK", shape: "diamond" },
+              { id: "done", label: "Done" },
+            ],
+            edges: [
+              { from: "start", to: "work" },
+              { from: "work", to: "ok" },
+              { from: "ok", to: "done" },
+              { from: "ok", to: "work", label: "retry" },
+            ],
+          },
+        }),
+      );
+
+      expect(result.arrowIds).toHaveLength(4);
+      const start = controller.getObject(result.nodeIds.start);
+      const work = controller.getObject(result.nodeIds.work);
+      const ok = controller.getObject(result.nodeIds.ok);
+      const done = controller.getObject(result.nodeIds.done);
+      expect(start?.y).toBe(0);
+      expect(work?.y).toBe(140);
+      expect(ok?.y).toBe(280);
+      expect(done?.y).toBe(420);
+
+      const beforeBadCall = controller.listObjects().length;
+      const bad = await client.callTool({
+        name: "create_flowchart",
+        arguments: {
+          nodes: [
+            { id: "a", label: "A" },
+            { id: "b", label: "B" },
+          ],
+          edges: [
+            { from: "a", to: "b" },
+            { from: "a", to: "ghost" },
+          ],
+        },
+      });
+
+      expect((bad as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(bad)).toMatch(/Flowchart edge references missing node/);
+      expect(controller.listObjects()).toHaveLength(beforeBadCall);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects invalid group requests without mutating objects", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const server = buildMcpServer({
+      plugin,
+      controller,
+      workspace,
+      clientsConnected: () => 0,
+      requestExport: async () => {
+        throw new Error("No browser canvas client is connected");
+      },
+      requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (selectedIds) => ({ selectedIds }),
+    });
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const rectangle = jsonContent<{ id: string }>(
+        await client.callTool({
+          name: "draw_rectangle",
+          arguments: { x: 0, y: 0, width: 160, height: 80 },
+        }),
+      );
+
+      const missing = await client.callTool({
+        name: "group_objects",
+        arguments: { ids: [rectangle.id, "missing"] },
+      });
+
+      expect((missing as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(missing)).toMatch(/Object not found: missing/);
+      expect(controller.getObject(rectangle.id)?.groupIds).toEqual([]);
     } finally {
       await close();
     }

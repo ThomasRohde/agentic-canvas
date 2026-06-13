@@ -34,6 +34,7 @@ describe("baseline MCP tools", () => {
         throw new Error("No browser canvas client is connected");
       },
       requestSelection: async () => ({ selectedIds }),
+      requestSetSelection: async (nextSelectedIds) => ({ selectedIds: nextSelectedIds }),
     });
     const { client, close } = await connectInMemory(server);
 
@@ -73,7 +74,39 @@ describe("baseline MCP tools", () => {
       expect(selected.objects.map((item) => item.id)).toEqual([created.id]);
       expect(selected.missingIds).toEqual(["stale-selected-id"]);
 
+      const selectedSet = jsonContent<{ selectedIds: string[]; missingIds: string[] }>(
+        await client.callTool({
+          name: "select_objects",
+          arguments: { ids: [created.id, "missing-selection-id"] },
+        }),
+      );
+      expect(selectedSet).toEqual({
+        selectedIds: [created.id],
+        missingIds: ["missing-selection-id"],
+      });
+
+      const background = jsonContent<{ viewBackgroundColor: string }>(
+        await client.callTool({
+          name: "set_canvas_background",
+          arguments: { color: "#f8f9fa" },
+        }),
+      );
+      expect(background.viewBackgroundColor).toBe("#f8f9fa");
+      expect(controller.getSnapshot().appState.viewBackgroundColor).toBe("#f8f9fa");
+
       await client.callTool({ name: "update_object", arguments: { id: created.id, x: 40 } });
+      expect(controller.getObject(created.id)?.x).toBe(40);
+
+      const undo = jsonContent<{ version: number; undone: boolean }>(
+        await client.callTool({ name: "undo", arguments: {} }),
+      );
+      expect(undo.undone).toBe(true);
+      expect(controller.getObject(created.id)?.x).toBe(10);
+
+      const redo = jsonContent<{ version: number; redone: boolean }>(
+        await client.callTool({ name: "redo", arguments: {} }),
+      );
+      expect(redo.redone).toBe(true);
       expect(controller.getObject(created.id)?.x).toBe(40);
 
       const saved = jsonContent<{ path: string }>(
@@ -121,6 +154,7 @@ describe("baseline MCP tools", () => {
         throw new Error("not used");
       },
       requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (selectedIds) => ({ selectedIds }),
     });
     const { client, close } = await connectInMemory(server);
 
@@ -155,6 +189,9 @@ describe("baseline MCP tools", () => {
       requestSelection: async () => {
         throw new Error("No browser canvas client is connected");
       },
+      requestSetSelection: async () => {
+        throw new Error("No browser canvas client is connected");
+      },
     });
     const { client, close } = await connectInMemory(server);
 
@@ -162,6 +199,10 @@ describe("baseline MCP tools", () => {
       const selected = await client.callTool({ name: "get_selected_objects", arguments: {} });
       expect((selected as { isError?: boolean }).isError).toBe(true);
       expect(textContent(selected)).toMatch(/No browser canvas client/);
+
+      const setSelected = await client.callTool({ name: "select_objects", arguments: { ids: [] } });
+      expect((setSelected as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(setSelected)).toMatch(/No browser canvas client/);
     } finally {
       await close();
     }

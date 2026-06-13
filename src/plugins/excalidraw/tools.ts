@@ -4,14 +4,14 @@ import type { PluginToolContext } from "../../core/plugin.js";
 import type { CreateObjectSpec } from "../../core/scene.js";
 import { endpointSchema, pointsSchema, styleSchema } from "../../mcp/schemas.js";
 import { planFlowchart } from "./flowchart.js";
-import { groupElements, setFrameOnChildren } from "./index.js";
+import { groupElements, removeFromFrame, setFrameOnChildren, ungroupElements } from "./index.js";
 
 const shapeInput = {
   x: z.number(),
   y: z.number(),
-  width: z.number(),
-  height: z.number(),
-  text: z.string().optional(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  text: z.string().min(1).optional(),
   style: styleSchema.optional(),
 };
 
@@ -82,7 +82,7 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
       inputSchema: {
         x: z.number().optional(),
         y: z.number().optional(),
-        text: z.string(),
+        text: z.string().min(1),
         containerId: z.string().optional(),
         style: styleSchema.optional(),
       },
@@ -113,9 +113,9 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
       inputSchema: {
         x: z.number(),
         y: z.number(),
-        width: z.number(),
-        height: z.number(),
-        name: z.string().optional(),
+        width: z.number().positive(),
+        height: z.number().positive(),
+        name: z.string().min(1).optional(),
         childIds: z.array(z.string()).optional(),
       },
     },
@@ -143,12 +143,52 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
     {
       description: "Group existing Excalidraw elements.",
       inputSchema: {
+        ids: z.array(z.string()).min(2),
+      },
+    },
+    async ({ ids }) => {
+      try {
+        return textResult(context.controller.mutateScene((scene) => groupElements(scene, ids)));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "ungroup_objects",
+    {
+      description: "Remove one group, or all groups, from existing Excalidraw elements.",
+      inputSchema: {
+        ids: z.array(z.string()).min(1),
+        groupId: z.string().optional(),
+      },
+    },
+    async ({ ids, groupId }) => {
+      try {
+        return textResult(
+          context.controller.mutateScene((scene) => ungroupElements(scene, ids, groupId)),
+        );
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "remove_from_frame",
+    {
+      description: "Clear the frame assignment from existing Excalidraw elements.",
+      inputSchema: {
         ids: z.array(z.string()).min(1),
       },
     },
     async ({ ids }) => {
-      const groupId = context.controller.mutateScene((scene) => groupElements(scene, ids));
-      return textResult({ groupId });
+      try {
+        return textResult(context.controller.mutateScene((scene) => removeFromFrame(scene, ids)));
+      } catch (error) {
+        return errorResult(error);
+      }
     },
   );
 
@@ -161,7 +201,7 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
           .array(
             z.object({
               id: z.string(),
-              label: z.string(),
+              label: z.string().min(1),
               shape: z.enum(["rectangle", "ellipse", "diamond"]).optional(),
               x: z.number().optional(),
               y: z.number().optional(),
@@ -169,7 +209,7 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
           )
           .min(1),
         edges: z.array(
-          z.object({ from: z.string(), to: z.string(), label: z.string().optional() }),
+          z.object({ from: z.string(), to: z.string(), label: z.string().min(1).optional() }),
         ),
         direction: z.enum(["TB", "LR"]).optional(),
         spacingX: z.number().positive().optional(),

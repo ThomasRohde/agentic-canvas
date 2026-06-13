@@ -4,6 +4,7 @@ import type {
   ExportRequestMessage,
   SceneSetMessage,
   SelectionRequestMessage,
+  SelectionSetRequestMessage,
   ServerToBrowserMessage,
 } from "../shared/protocol.js";
 
@@ -14,6 +15,7 @@ export interface CanvasWsClientHandlers {
   onSceneSet(message: SceneSetMessage): void;
   onExportRequest(message: ExportRequestMessage): void;
   onSelectionRequest(message: SelectionRequestMessage): void;
+  onSelectionSetRequest(message: SelectionSetRequestMessage): void;
 }
 
 export class CanvasWsClient {
@@ -45,8 +47,10 @@ export class CanvasWsClient {
         this.handlers.onSceneSet(message);
       } else if (message.type === "export:request") {
         this.handlers.onExportRequest(message);
-      } else {
+      } else if (message.type === "selection:request") {
         this.handlers.onSelectionRequest(message);
+      } else {
+        this.handlers.onSelectionSetRequest(message);
       }
     });
 
@@ -91,8 +95,16 @@ export class CanvasWsClient {
     this.send({ type: "selection:error", id, message });
   }
 
+  sendSelectionSetResult(id: string, selectedIds: string[]): void {
+    this.send({ type: "selection:set:result", id, selectedIds });
+  }
+
+  sendSelectionSetError(id: string, message: string): void {
+    this.send({ type: "selection:set:error", id, message });
+  }
+
   requestFullScene(): void {
-    this.send({ type: "hello" });
+    this.send({ type: "hello", capabilities: { selectionSet: true } });
   }
 
   private send(message: BrowserToServerMessage): void {
@@ -112,7 +124,8 @@ function parseServerMessage(data: unknown): ServerToBrowserMessage | undefined {
     if (
       parsed.type === "scene:set" ||
       parsed.type === "export:request" ||
-      parsed.type === "selection:request"
+      parsed.type === "selection:request" ||
+      parsed.type === "selection:set"
     ) {
       return parsed;
     }

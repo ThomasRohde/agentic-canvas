@@ -165,9 +165,27 @@ export function isElementEndpoint(endpoint: ArrowEndpoint): endpoint is ElementE
 
 export function cloneScene(scene: Scene): Scene {
   return {
-    elements: scene.elements.map((element) => ({ ...element })),
+    elements: scene.elements.map(cloneElement),
     appState: { ...scene.appState },
     files: { ...scene.files },
     version: scene.version,
+  };
+}
+
+export function cloneElement(element: ExcalidrawElement): ExcalidrawElement {
+  return {
+    ...element,
+    groupIds: [...element.groupIds],
+    roundness: element.roundness ? { ...element.roundness } : null,
+    boundElements: element.boundElements
+      ? element.boundElements.map((bound) => ({ ...bound }))
+      : null,
+    points: element.points ? element.points.map(([x, y]) => [x, y]) : undefined,
+    startBinding: element.startBinding ? { ...element.startBinding } : element.startBinding,
+    endBinding: element.endBinding ? { ...element.endBinding } : element.endBinding,
+    lastCommittedPoint: element.lastCommittedPoint
+      ? [element.lastCommittedPoint[0], element.lastCommittedPoint[1]]
+      : element.lastCommittedPoint,
+    customData: element.customData ? { ...element.customData } : element.customData,
   };
 }

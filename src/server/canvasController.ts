@@ -30,6 +30,10 @@ export class CanvasController {
   private txDepth = 0;
   private txDirty = false;
   private txOrigin?: SceneChangeOrigin;
+  private txSnapshot?: Scene;
+  private readonly undoStack: Scene[] = [];
+  private readonly redoStack: Scene[] = [];
+  private readonly maxHistory = 50;
 
   constructor(private readonly plugin: CanvasPlugin) {
     this.scene = plugin.createInitialScene();
@@ -96,9 +100,12 @@ export class CanvasController {
   }
 
   deserialize(raw: string): void {
+    const before = cloneScene(this.scene);
     const currentVersion = this.scene.version;
     this.scene = this.plugin.deserialize(raw);
     this.scene.version = currentVersion;
+    this.pushUndo(before);
+    this.redoStack.length = 0;
     this.bumpAndNotify();
   }
 
@@ -108,6 +115,8 @@ export class CanvasController {
     files?: BinaryFiles,
     origin?: SceneChangeOrigin,
   ): void {
+    this.pushUndo(cloneScene(this.scene));
+    this.redoStack.length = 0;
     this.scene.elements = elements;
     this.scene.appState = {
       viewBackgroundColor: appState?.viewBackgroundColor ?? this.scene.appState.viewBackgroundColor,
@@ -117,24 +126,79 @@ export class CanvasController {
   }
 
   mutateScene<T>(mutator: (scene: Scene) => T, origin?: SceneChangeOrigin): T {
+    if (this.txDepth > 0) {
+      const result = mutator(this.scene);
+      this.bumpAndNotify(origin);
+      return result;
+    }
+
+    const before = cloneScene(this.scene);
     const result = mutator(this.scene);
+    this.pushUndo(before);
+    this.redoStack.length = 0;
     this.bumpAndNotify(origin);
     return result;
   }
 
   transaction<T>(fn: () => T, origin?: SceneChangeOrigin): T {
+    const isOuterTransaction = this.txDepth === 0;
+    if (isOuterTransaction) {
+      this.txSnapshot = cloneScene(this.scene);
+    }
+
     this.txDepth += 1;
+    let failed = false;
     try {
       return fn();
-    } finally {
-      this.txDepth -= 1;
-      if (this.txDepth === 0 && this.txDirty) {
-        const txOrigin = this.txOrigin;
+    } catch (error) {
+      failed = true;
+      if (isOuterTransaction && this.txSnapshot) {
+        this.scene = this.txSnapshot;
         this.txDirty = false;
         this.txOrigin = undefined;
+      }
+      throw error;
+    } finally {
+      this.txDepth -= 1;
+      if (this.txDepth === 0 && failed) {
+        this.txSnapshot = undefined;
+      } else if (this.txDepth === 0 && this.txDirty) {
+        const txOrigin = this.txOrigin;
+        const snapshot = this.txSnapshot;
+        this.txDirty = false;
+        this.txOrigin = undefined;
+        this.txSnapshot = undefined;
+        if (snapshot) {
+          this.pushUndo(snapshot);
+          this.redoStack.length = 0;
+        }
         this.commit(txOrigin ?? origin);
+      } else if (this.txDepth === 0) {
+        this.txSnapshot = undefined;
       }
     }
+  }
+
+  undo(): boolean {
+    const previous = this.undoStack.pop();
+    if (!previous) {
+      return false;
+    }
+
+    this.redoStack.push(cloneScene(this.scene));
+    this.restoreScene(previous);
+    return true;
+  }
+
+  redo(): boolean {
+    const next = this.redoStack.pop();
+    if (!next) {
+      return false;
+    }
+
+    this.undoStack.push(cloneScene(this.scene));
+    this.restoreScene(next);
+    return true;
   }
 
   private bumpAndNotify(origin?: SceneChangeOrigin): void {
@@ -150,5 +214,19 @@ export class CanvasController {
   private commit(origin?: SceneChangeOrigin): void {
     this.scene.version += 1;
     this.listener?.(this.getSnapshot(), origin);
+  }
+
+  private pushUndo(scene: Scene): void {
+    this.undoStack.push(cloneScene(scene));
+    if (this.undoStack.length > this.maxHistory) {
+      this.undoStack.shift();
+    }
+  }
+
+  private restoreScene(scene: Scene): void {
+    const currentVersion = this.scene.version;
+    this.scene = cloneScene(scene);
+    this.scene.version = currentVersion;
+    this.commit();
   }
 }

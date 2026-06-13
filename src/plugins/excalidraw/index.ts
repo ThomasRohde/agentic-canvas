@@ -13,10 +13,12 @@ import type {
   UpdateObjectPatch,
 } from "../../core/scene.js";
 import { isElementEndpoint } from "../../core/scene.js";
+import { isCanvasColor } from "../../shared/colors.js";
 import { toCanvasObject, toCanvasObjectSummary } from "./adapter.js";
 import { addBoundElement, buildElement, makeBinding, touchElement } from "./elements.js";
 import { deserializeScene, serializeScene } from "./format.js";
 import { type Point, centerPoint, edgePoint } from "./geometry.js";
+import { measureTextBounds } from "./textMetrics.js";
 import { registerExcalidrawTools } from "./tools.js";
 
 export function createExcalidrawPlugin(): CanvasPlugin {
@@ -69,8 +71,17 @@ function getObject(scene: Scene, id: string): CanvasObject | undefined {
 }
 
 function createObject(scene: Scene, spec: CreateObjectSpec): CanvasObject {
+  validateCreateSpec(spec);
+  if (spec.containerId && !findElement(scene, spec.containerId)) {
+    throw new Error(`Object not found: ${spec.containerId}`);
+  }
+
   const element = buildElementWithBindings(scene, spec);
   scene.elements.push(element);
+
+  if (spec.type === "text" && spec.containerId) {
+    addBoundElementById(scene, spec.containerId, { id: element.id, type: "text" });
+  }
 
   if (spec.text && canCreateBoundLabel(spec.type)) {
     const label = createBoundLabel(element, spec.text, spec.style);
@@ -94,6 +105,8 @@ function updateObject(
   if (!element) {
     return undefined;
   }
+
+  validateUpdatePatch(element, patch);
 
   if (patch.x !== undefined) {
     element.x = patch.x;
@@ -120,27 +133,60 @@ function updateObject(
   }
   if (patch.style) {
     applyStyle(element, patch.style);
+    if (element.type === "text") {
+      resizeTextElement(element);
+    } else {
+      applyTextStyleToBoundLabels(scene, element, patch.style);
+    }
   }
   if (patch.text !== undefined) {
     if (element.type === "text") {
       element.text = patch.text;
       element.originalText = patch.text;
+      resizeTextElement(element);
+      if (element.containerId) {
+        const container = findElement(scene, element.containerId);
+        if (container) {
+          relayoutBoundLabels(scene, container);
+        }
+      }
     } else {
       upsertContainerLabel(scene, element, patch.text, patch.style);
     }
   }
 
   touchElement(element);
+  syncBoundElements(scene, element);
   return toCanvasObject(element);
 }
 
 function deleteObjects(scene: Scene, ids: string[]): string[] {
   const idSet = new Set(ids);
-  const before = scene.elements.length;
-  scene.elements = scene.elements.filter(
-    (element) => !idSet.has(element.id) && !idSet.has(element.containerId ?? ""),
-  );
-  return before === scene.elements.length ? [] : ids.filter((id) => !findElement(scene, id));
+  const deleted = new Set<string>();
+  for (const element of scene.elements) {
+    if (idSet.has(element.id) || idSet.has(element.containerId ?? "")) {
+      deleted.add(element.id);
+    }
+  }
+
+  if (deleted.size === 0) {
+    return [];
+  }
+
+  scene.elements = scene.elements.filter((element) => !deleted.has(element.id));
+  for (const element of scene.elements) {
+    if (!element.boundElements) {
+      continue;
+    }
+
+    const kept = element.boundElements.filter((bound) => !deleted.has(bound.id));
+    if (kept.length !== element.boundElements.length) {
+      element.boundElements = kept.length > 0 ? kept : null;
+      touchElement(element);
+    }
+  }
+
+  return [...deleted];
 }
 
 function clear(scene: Scene): void {
@@ -245,6 +291,7 @@ function upsertContainerLabel(
     if (style) {
       applyStyle(existing, style);
     }
+    positionBoundLabel(existing, container);
     touchElement(existing);
     return;
   }
@@ -283,25 +330,22 @@ function labelPosition(
   text: string,
   style: CanvasStyle,
 ): { x: number; y: number; width: number; height: number } {
-  const fontSize = style.fontSize ?? 20;
-  const lineHeight = fontSize * 1.25;
+  const measured = measureTextBounds(text, style);
   if (isLinearElement(container)) {
     const midpoint = linearMidpoint(container);
-    const width = Math.max(40, text.length * fontSize * 0.6);
-    const height = lineHeight;
     return {
-      x: midpoint.x - width / 2,
-      y: midpoint.y - height / 2,
-      width,
-      height,
+      x: midpoint.x - measured.width / 2,
+      y: midpoint.y - measured.height / 2,
+      width: measured.width,
+      height: measured.height,
     };
   }
 
   return {
     x: container.x,
-    y: container.y + container.height / 2 - lineHeight / 2,
+    y: container.y + container.height / 2 - measured.height / 2,
     width: Math.max(40, container.width),
-    height: lineHeight,
+    height: measured.height,
   };
 }
 
@@ -354,16 +398,49 @@ export function setFrameOnChildren(scene: Scene, childIds: string[], frameId: st
   return updated;
 }
 
-export function groupElements(scene: Scene, ids: string[]): string {
+export function groupElements(scene: Scene, ids: string[]): { groupId: string; ids: string[] } {
+  const elements = resolveElements(scene, ids);
+  if (elements.length < 2) {
+    throw new Error("At least two existing objects are required to create a group");
+  }
+
   const groupId = randomUUID();
-  for (const id of ids) {
-    const element = findElement(scene, id);
-    if (element && !element.groupIds.includes(groupId)) {
+  for (const element of elements) {
+    if (!element.groupIds.includes(groupId)) {
       element.groupIds = [...element.groupIds, groupId];
       touchElement(element);
     }
   }
-  return groupId;
+  return { groupId, ids: elements.map((element) => element.id) };
+}
+
+export function ungroupElements(
+  scene: Scene,
+  ids: string[],
+  groupId?: string,
+): { ids: string[]; groupId?: string } {
+  const elements = resolveElements(scene, ids);
+  for (const element of elements) {
+    const nextGroupIds = groupId
+      ? element.groupIds.filter((candidate) => candidate !== groupId)
+      : [];
+    if (nextGroupIds.length !== element.groupIds.length) {
+      element.groupIds = nextGroupIds;
+      touchElement(element);
+    }
+  }
+  return { ids: elements.map((element) => element.id), groupId };
+}
+
+export function removeFromFrame(scene: Scene, ids: string[]): { ids: string[] } {
+  const elements = resolveElements(scene, ids);
+  for (const element of elements) {
+    if (element.frameId !== null) {
+      element.frameId = null;
+      touchElement(element);
+    }
+  }
+  return { ids: elements.map((element) => element.id) };
 }
 
 function applyStyle(
@@ -392,12 +469,223 @@ function applyStyle(
     element.opacity = style.opacity;
   }
   if (style.fontSize !== undefined) {
+    if (element.type !== "text") {
+      return;
+    }
     element.fontSize = style.fontSize;
-    element.height = style.fontSize * 1.25;
   }
   if (style.textAlign !== undefined) {
+    if (element.type !== "text") {
+      return;
+    }
     element.textAlign = style.textAlign;
   }
+}
+
+function validateCreateSpec(spec: CreateObjectSpec): void {
+  validateStyle(spec.style);
+  validateText(spec.type, spec.text);
+  validateDimensions(spec.type, spec.width, spec.height);
+  if ((spec.type === "line" || spec.type === "arrow") && spec.points) {
+    validateLinearPoints(spec.points);
+  }
+}
+
+function validateUpdatePatch(element: ExcalidrawElement, patch: UpdateObjectPatch): void {
+  validateStyle(patch.style);
+  validateText(element.type as CanvasObjectType, patch.text);
+  validateDimensions(element.type as CanvasObjectType, patch.width, patch.height);
+  if (patch.points) {
+    validateLinearPoints(patch.points);
+  }
+}
+
+function validateStyle(style?: CanvasStyle): void {
+  for (const [field, value] of [
+    ["strokeColor", style?.strokeColor],
+    ["backgroundColor", style?.backgroundColor],
+  ] as const) {
+    if (value !== undefined && !isCanvasColor(value)) {
+      throw new Error(`Invalid ${field}: ${value}`);
+    }
+  }
+}
+
+function validateText(type: CanvasObjectType, text?: string): void {
+  if (text !== undefined && text.trim().length === 0 && type !== "frame") {
+    throw new Error("Text must not be empty");
+  }
+}
+
+function validateDimensions(type: CanvasObjectType, width?: number, height?: number): void {
+  if (type === "line" || type === "arrow" || type === "text") {
+    if (width !== undefined && height !== undefined && width === 0 && height === 0) {
+      throw new Error("Linear geometry must not be zero length");
+    }
+    return;
+  }
+
+  if (width !== undefined && width <= 0) {
+    throw new Error("Width must be greater than zero");
+  }
+  if (height !== undefined && height <= 0) {
+    throw new Error("Height must be greater than zero");
+  }
+}
+
+function validateLinearPoints(points: [number, number][]): void {
+  if (points.length < 2) {
+    throw new Error("Line and arrow points must contain at least two points");
+  }
+  const [firstX, firstY] = points[0] ?? [0, 0];
+  if (points.every(([x, y]) => x === firstX && y === firstY)) {
+    throw new Error("Line and arrow points must not be zero length");
+  }
+}
+
+function resizeTextElement(element: ExcalidrawElement): void {
+  const bounds = measureTextBounds(element.text ?? "", styleFromElement(element));
+  element.width = bounds.width;
+  element.height = bounds.height;
+  element.fontSize = bounds.fontSize;
+  element.lineHeight = bounds.lineHeight;
+}
+
+function syncBoundElements(scene: Scene, element: ExcalidrawElement): void {
+  relayoutBoundLabels(scene, element);
+  rerouteBoundArrows(scene, element);
+}
+
+function relayoutBoundLabels(scene: Scene, container: ExcalidrawElement): void {
+  for (const label of scene.elements.filter(
+    (candidate) => candidate.type === "text" && candidate.containerId === container.id,
+  )) {
+    positionBoundLabel(label, container);
+    touchElement(label);
+  }
+}
+
+function applyTextStyleToBoundLabels(
+  scene: Scene,
+  container: ExcalidrawElement,
+  style: CanvasStyle,
+): void {
+  if (style.fontSize === undefined && style.textAlign === undefined) {
+    return;
+  }
+
+  for (const label of scene.elements.filter(
+    (candidate) => candidate.type === "text" && candidate.containerId === container.id,
+  )) {
+    applyStyle(label, {
+      fontSize: style.fontSize,
+      textAlign: style.textAlign,
+    });
+    resizeTextElement(label);
+    positionBoundLabel(label, container);
+    touchElement(label);
+  }
+}
+
+function positionBoundLabel(label: ExcalidrawElement, container: ExcalidrawElement): void {
+  const position = labelPosition(container, label.text ?? "", styleFromElement(label));
+  label.x = position.x;
+  label.y = position.y;
+  label.width = position.width;
+  label.height = position.height;
+  label.autoResize = false;
+}
+
+function rerouteBoundArrows(scene: Scene, changedElement: ExcalidrawElement): void {
+  const arrowIds = new Set<string>(
+    (changedElement.boundElements ?? [])
+      .filter((bound) => bound.type === "arrow")
+      .map((bound) => bound.id),
+  );
+
+  for (const candidate of scene.elements) {
+    if (
+      isLinearElement(candidate) &&
+      (candidate.startBinding?.elementId === changedElement.id ||
+        candidate.endBinding?.elementId === changedElement.id)
+    ) {
+      arrowIds.add(candidate.id);
+    }
+  }
+
+  for (const arrowId of arrowIds) {
+    const arrow = findElement(scene, arrowId);
+    if (!arrow || !isLinearElement(arrow)) {
+      continue;
+    }
+
+    rerouteArrow(scene, arrow);
+    relayoutBoundLabels(scene, arrow);
+  }
+}
+
+function rerouteArrow(scene: Scene, arrow: ExcalidrawElement): void {
+  const startTarget = arrow.startBinding
+    ? findElement(scene, arrow.startBinding.elementId)
+    : undefined;
+  const endTarget = arrow.endBinding ? findElement(scene, arrow.endBinding.elementId) : undefined;
+  if (!startTarget && !endTarget) {
+    return;
+  }
+
+  const currentStart = absoluteStartPoint(arrow);
+  const currentEnd = absoluteEndPoint(arrow);
+  const startReference = endTarget ? centerPoint(endTarget) : currentEnd;
+  const endReference = startTarget ? centerPoint(startTarget) : currentStart;
+  const startPoint = startTarget
+    ? edgePoint(startTarget, startReference.x, startReference.y)
+    : currentStart;
+  const endPoint = endTarget ? edgePoint(endTarget, endReference.x, endReference.y) : currentEnd;
+
+  arrow.x = startPoint.x;
+  arrow.y = startPoint.y;
+  arrow.points = [
+    [0, 0],
+    [endPoint.x - startPoint.x, endPoint.y - startPoint.y],
+  ];
+  arrow.width = linearWidth(arrow.points);
+  arrow.height = linearHeight(arrow.points);
+  touchElement(arrow);
+}
+
+function absoluteStartPoint(element: ExcalidrawElement): Point {
+  const first = element.points?.[0] ?? [0, 0];
+  return { x: element.x + first[0], y: element.y + first[1] };
+}
+
+function absoluteEndPoint(element: ExcalidrawElement): Point {
+  const points = element.points ?? [[0, 0]];
+  const last = points[points.length - 1] ?? [0, 0];
+  return { x: element.x + last[0], y: element.y + last[1] };
+}
+
+function styleFromElement(element: ExcalidrawElement): CanvasStyle {
+  return {
+    strokeColor: element.strokeColor,
+    backgroundColor: element.backgroundColor,
+    fillStyle: element.fillStyle as CanvasStyle["fillStyle"],
+    strokeWidth: element.strokeWidth as CanvasStyle["strokeWidth"],
+    strokeStyle: element.strokeStyle,
+    roughness: element.roughness as CanvasStyle["roughness"],
+    opacity: element.opacity,
+    fontSize: element.fontSize,
+    textAlign: element.textAlign,
+  };
+}
+
+function resolveElements(scene: Scene, ids: string[]): ExcalidrawElement[] {
+  const missingIds = ids.filter((id) => !findElement(scene, id));
+  if (missingIds.length > 0) {
+    throw new Error(`Object not found: ${missingIds.join(", ")}`);
+  }
+  return ids
+    .map((id) => findElement(scene, id))
+    .filter((element): element is ExcalidrawElement => Boolean(element));
 }
 
 function linearWidth(points: [number, number][]): number {

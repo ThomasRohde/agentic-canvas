@@ -6,6 +6,7 @@ import type {
   ExportRequestMessage,
   SceneSetMessage,
   SelectionRequestMessage,
+  SelectionSetRequestMessage,
 } from "../shared/protocol.js";
 import { exportSceneToBase64 } from "./exportImage.js";
 import { applyRemoteSceneToCanvas } from "./sceneApply.js";
@@ -14,7 +15,7 @@ import {
   createAppliedSceneSignatures,
   rememberAppliedScene,
 } from "./sceneSync.js";
-import { selectedIdsFromAppState } from "./selection.js";
+import { selectedElementIdsForIds, selectedIdsFromAppState } from "./selection.js";
 import { CanvasWsClient, type ConnectionState } from "./wsClient.js";
 
 interface ExcalidrawApi {
@@ -43,6 +44,7 @@ export function CanvasApp() {
       onSceneSet: (message) => applyRemoteScene(message),
       onExportRequest: (message) => void handleExportRequest(message),
       onSelectionRequest: (message) => handleSelectionRequest(message),
+      onSelectionSetRequest: (message) => handleSelectionSetRequest(message),
     });
     clientRef.current = client;
     client.connect();
@@ -132,6 +134,28 @@ export function CanvasApp() {
       );
     } catch (error) {
       clientRef.current?.sendSelectionError(
+        message.id,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  const handleSelectionSetRequest = (message: SelectionSetRequestMessage) => {
+    const api = apiRef.current;
+    if (!api) {
+      clientRef.current?.sendSelectionSetError(message.id, "Excalidraw API is not ready");
+      return;
+    }
+
+    try {
+      api.updateScene({
+        appState: {
+          selectedElementIds: selectedElementIdsForIds(message.selectedIds),
+        },
+      });
+      clientRef.current?.sendSelectionSetResult(message.id, message.selectedIds);
+    } catch (error) {
+      clientRef.current?.sendSelectionSetError(
         message.id,
         error instanceof Error ? error.message : String(error),
       );
