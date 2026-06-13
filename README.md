@@ -42,6 +42,25 @@ Flags:
 
 Optional environment overrides are `AGENTIC_CANVAS_PORT`, `AGENTIC_CANVAS_HOST`, and `AGENTIC_CANVAS_WORKSPACE`. No secrets or `.env` file are required.
 
+## Develop
+
+For backend, MCP tool, plugin, or workspace changes:
+
+```bash
+npm run dev
+```
+
+For browser HMR, run the backend and Vite dev server in separate terminals:
+
+```bash
+npm run dev:server
+npm run dev:web
+```
+
+Open `http://127.0.0.1:5173` for the Vite UI. MCP clients should still connect to the backend at `http://127.0.0.1:3333/mcp`.
+
+See `docs/mcp-dev.md` for Codex configuration, MCP Inspector usage, and restart expectations.
+
 ## Connect An MCP Client
 
 With the server running on the default port:
@@ -53,9 +72,10 @@ claude mcp add --transport http agentic-canvas http://127.0.0.1:3333/mcp
 Example tool flow:
 
 1. Call `draw_rectangle` with `{ "x": 100, "y": 100, "width": 200, "height": 120, "text": "Hello" }`; a labeled rectangle appears in the browser.
-2. Call `screenshot`; the tool returns a PNG image.
-3. Call `save_canvas` with `{ "path": "demo.excalidraw" }`; the file is written inside the workspace.
-4. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo.excalidraw" }`; the saved scene is restored.
+2. Select the rectangle in the browser and call `get_selected_objects`; the tool returns the selected normalized object.
+3. Call `screenshot`; the tool returns a PNG image.
+4. Call `save_canvas` with `{ "path": "demo.excalidraw" }`; the file is written inside the workspace.
+5. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo.excalidraw" }`; the saved scene is restored.
 
 ## Test And Build
 
@@ -80,6 +100,12 @@ node dist/cli/index.js --no-open --port 3939
 
 Then probe `http://127.0.0.1:3939/healthz` and call `get_canvas_state` through an MCP Streamable HTTP client.
 
+MCP Inspector:
+
+```bash
+npm run inspect:mcp
+```
+
 ## Manual UI Verification
 
 1. Run `npm run build && npm start -- --canvas excalidraw`.
@@ -87,8 +113,9 @@ Then probe `http://127.0.0.1:3939/healthz` and call `get_canvas_state` through a
 3. Call `draw_rectangle`, `add_text`, `draw_arrow`, and `create_flowchart`.
 4. Confirm the shapes appear live in the browser.
 5. Call `save_canvas`, `clear_canvas`, and `open_canvas`; confirm the scene clears and reloads.
-6. Call `screenshot`; confirm a PNG is returned and, when `path` is provided, written in the workspace.
-7. Drag or edit a shape by hand in the browser, then call `list_objects`; confirm the listing reflects the human edit.
+6. Select a shape in the browser, then call `get_selected_objects`; confirm the selected object id is returned.
+7. Call `screenshot`; confirm a PNG is returned and, when `path` is provided, written in the workspace.
+8. Drag or edit a shape by hand in the browser, then call `list_objects`; confirm the listing reflects the human edit.
 
 ## Release Checks
 
@@ -129,5 +156,5 @@ scripts/                 Release and package smoke scripts
 - HTTP MCP transport only; no stdio transport in v1.
 - Single browser session is the expected mode.
 - Full-scene sync is used instead of diffs or CRDT collaboration.
-- Screenshot requires a connected browser.
+- Screenshot and selected-object lookup require a connected browser.
 - The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, save/open, and screenshot.

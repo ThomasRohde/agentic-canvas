@@ -256,6 +256,25 @@ Baseline tools provided for every plugin:
 - `save_canvas`
 - `open_canvas`
 - `screenshot`
+- `get_selected_objects`
+
+`get_selected_objects` has no input arguments. It asks the connected browser for the
+current UI selection, resolves those ids through `CanvasController`, and returns JSON
+text:
+
+```json
+{
+  "version": 7,
+  "selectedIds": ["object-id"],
+  "objects": [],
+  "missingIds": []
+}
+```
+
+Selection is live browser state, not authoritative scene state. If the browser
+reports ids that no longer exist in the server scene, they are returned in
+`missingIds`. An empty selection returns empty arrays. No connected browser, browser
+errors, and request timeouts are returned as MCP `isError` results.
 
 Plugin tools must not redefine baseline tool names. Use plugin-specific names for
 engine-native operations and higher-level workflows.
@@ -272,4 +291,3 @@ The current selection path is static:
 Adding a second plugin requires updating those static selection points and tests. Do
 not add dynamic imports, external package loading, remote registries, or marketplace
 behavior as part of normal plugin authoring.
-

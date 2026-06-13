@@ -45,6 +45,7 @@ export async function startHttpServer(options: StartServerOptions): Promise<Runn
     allowedHosts: allowedHostsFor(options.host, port),
     clientsConnected: () => bridge.connectedClientCount(),
     requestExport: (exportOptions) => bridge.requestExport(exportOptions),
+    requestSelection: (selectionOptions) => bridge.requestSelection(selectionOptions),
   });
 
   const server = createServer(app);

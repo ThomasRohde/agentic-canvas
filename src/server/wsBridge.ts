@@ -4,6 +4,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { ExcalidrawElement } from "../core/scene.js";
 import {
   type ExportRequestMessage,
+  type SelectionRequestMessage,
   type ServerToBrowserMessage,
   parseBrowserMessage,
 } from "../shared/protocol.js";
@@ -19,8 +20,22 @@ export interface BrowserExport {
   base64: string;
 }
 
+export interface SelectionOptions {
+  timeoutMs?: number;
+}
+
+export interface BrowserSelection {
+  selectedIds: string[];
+}
+
 interface PendingExport {
   resolve(value: BrowserExport): void;
+  reject(error: Error): void;
+  timer: NodeJS.Timeout;
+}
+
+interface PendingSelection {
+  resolve(value: BrowserSelection): void;
   reject(error: Error): void;
   timer: NodeJS.Timeout;
 }
@@ -33,7 +48,8 @@ interface ClientState {
 
 export class WsBridge {
   private readonly clients = new Map<WebSocket, ClientState>();
-  private readonly pending = new Map<string, PendingExport>();
+  private readonly pendingExports = new Map<string, PendingExport>();
+  private readonly pendingSelections = new Map<string, PendingSelection>();
   private syncOrder = 0;
   private wss?: WebSocketServer;
 
@@ -72,9 +88,7 @@ export class WsBridge {
   }
 
   requestExport(options: ExportOptions = {}): Promise<BrowserExport> {
-    const client = [...this.clients.values()]
-      .filter((candidate) => candidate.socket.readyState === WebSocket.OPEN)
-      .sort((left, right) => right.lastSyncedOrder - left.lastSyncedOrder)[0];
+    const client = this.mostRecentlySyncedClient();
     if (!client) {
       return Promise.reject(new Error("No browser canvas client is connected"));
     }
@@ -89,11 +103,34 @@ export class WsBridge {
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
+        this.pendingExports.delete(id);
         reject(new Error("Screenshot export timed out"));
       }, options.timeoutMs ?? 5000);
 
-      this.pending.set(id, { resolve, reject, timer });
+      this.pendingExports.set(id, { resolve, reject, timer });
+      client.socket.send(JSON.stringify(request));
+    });
+  }
+
+  requestSelection(options: SelectionOptions = {}): Promise<BrowserSelection> {
+    const client = this.mostRecentlySyncedClient();
+    if (!client) {
+      return Promise.reject(new Error("No browser canvas client is connected"));
+    }
+
+    const id = randomUUID();
+    const request: SelectionRequestMessage = {
+      type: "selection:request",
+      id,
+    };
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingSelections.delete(id);
+        reject(new Error("Selection request timed out"));
+      }, options.timeoutMs ?? 5000);
+
+      this.pendingSelections.set(id, { resolve, reject, timer });
       client.socket.send(JSON.stringify(request));
     });
   }
@@ -146,15 +183,31 @@ export class WsBridge {
     }
 
     if (message.type === "export:result" || message.type === "export:error") {
-      const pending = this.pending.get(message.id);
+      const pending = this.pendingExports.get(message.id);
       if (!pending) {
         return;
       }
 
       clearTimeout(pending.timer);
-      this.pending.delete(message.id);
+      this.pendingExports.delete(message.id);
       if (message.type === "export:result") {
         pending.resolve({ mimeType: message.mimeType, base64: message.base64 });
+      } else {
+        pending.reject(new Error(message.message));
+      }
+      return;
+    }
+
+    if (message.type === "selection:result" || message.type === "selection:error") {
+      const pending = this.pendingSelections.get(message.id);
+      if (!pending) {
+        return;
+      }
+
+      clearTimeout(pending.timer);
+      this.pendingSelections.delete(message.id);
+      if (message.type === "selection:result") {
+        pending.resolve({ selectedIds: message.selectedIds });
       } else {
         pending.reject(new Error(message.message));
       }
@@ -186,5 +239,11 @@ export class WsBridge {
 
     client.lastSyncedOrder = ++this.syncOrder;
     client.lastSyncedVersion = version;
+  }
+
+  private mostRecentlySyncedClient(): ClientState | undefined {
+    return [...this.clients.values()]
+      .filter((candidate) => candidate.socket.readyState === WebSocket.OPEN)
+      .sort((left, right) => right.lastSyncedOrder - left.lastSyncedOrder)[0];
   }
 }

@@ -32,6 +32,7 @@ describe("Excalidraw-specific MCP tools", () => {
       requestExport: async () => {
         throw new Error("No browser canvas client is connected");
       },
+      requestSelection: async () => ({ selectedIds: [] }),
     });
     const { client, close } = await connectInMemory(server);
 
@@ -117,6 +118,7 @@ describe("Excalidraw-specific MCP tools", () => {
       requestExport: async () => {
         throw new Error("No browser canvas client is connected");
       },
+      requestSelection: async () => ({ selectedIds: [] }),
     });
     const { client, close } = await connectInMemory(server);
 

@@ -2,7 +2,11 @@ import { CaptureUpdateAction, Excalidraw, restoreElements } from "@excalidraw/ex
 import "@excalidraw/excalidraw/index.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, BinaryFiles, ExcalidrawElement } from "../core/scene.js";
-import type { ExportRequestMessage, SceneSetMessage } from "../shared/protocol.js";
+import type {
+  ExportRequestMessage,
+  SceneSetMessage,
+  SelectionRequestMessage,
+} from "../shared/protocol.js";
 import { exportSceneToBase64 } from "./exportImage.js";
 import { applyRemoteSceneToCanvas } from "./sceneApply.js";
 import {
@@ -10,6 +14,7 @@ import {
   createAppliedSceneSignatures,
   rememberAppliedScene,
 } from "./sceneSync.js";
+import { selectedIdsFromAppState } from "./selection.js";
 import { CanvasWsClient, type ConnectionState } from "./wsClient.js";
 
 interface ExcalidrawApi {
@@ -37,6 +42,7 @@ export function CanvasApp() {
       onStateChange: setConnectionState,
       onSceneSet: (message) => applyRemoteScene(message),
       onExportRequest: (message) => void handleExportRequest(message),
+      onSelectionRequest: (message) => handleSelectionRequest(message),
     });
     clientRef.current = client;
     client.connect();
@@ -106,6 +112,26 @@ export function CanvasApp() {
       clientRef.current?.sendExportResult(message.id, exported.mimeType, exported.base64);
     } catch (error) {
       clientRef.current?.sendExportError(
+        message.id,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  const handleSelectionRequest = (message: SelectionRequestMessage) => {
+    const api = apiRef.current;
+    if (!api) {
+      clientRef.current?.sendSelectionError(message.id, "Excalidraw API is not ready");
+      return;
+    }
+
+    try {
+      clientRef.current?.sendSelectionResult(
+        message.id,
+        selectedIdsFromAppState(api.getAppState()),
+      );
+    } catch (error) {
+      clientRef.current?.sendSelectionError(
         message.id,
         error instanceof Error ? error.message : String(error),
       );

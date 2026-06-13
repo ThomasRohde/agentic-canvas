@@ -3,7 +3,7 @@ import type { CanvasPlugin } from "../core/plugin.js";
 import type { CanvasController } from "../server/canvasController.js";
 import type { Workspace } from "../server/workspace.js";
 import { MCP_SERVER_NAME, readPackageInfo } from "../shared/packageInfo.js";
-import type { ExportResult } from "./baselineTools.js";
+import type { ExportResult, SelectionResult } from "./baselineTools.js";
 import { registerBaselineTools } from "./baselineTools.js";
 
 export interface BuildMcpServerOptions {
@@ -12,6 +12,7 @@ export interface BuildMcpServerOptions {
   workspace: Workspace;
   clientsConnected(): number;
   requestExport(options: { exportPadding?: number }): Promise<ExportResult>;
+  requestSelection(options?: { timeoutMs?: number }): Promise<SelectionResult>;
 }
 
 export function buildMcpServer(options: BuildMcpServerOptions): McpServer {
@@ -26,6 +27,7 @@ export function buildMcpServer(options: BuildMcpServerOptions): McpServer {
     workspace: options.workspace,
     clientsConnected: options.clientsConnected,
     requestExport: options.requestExport,
+    requestSelection: options.requestSelection,
   });
 
   options.plugin.registerTools(server, {

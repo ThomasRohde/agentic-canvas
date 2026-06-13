@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { PluginToolContext } from "../../core/plugin.js";
 import type { CreateObjectSpec } from "../../core/scene.js";
-import { endpointSchema, styleSchema } from "../../mcp/schemas.js";
+import { endpointSchema, pointsSchema, styleSchema } from "../../mcp/schemas.js";
 import { planFlowchart } from "./flowchart.js";
 import { groupElements, setFrameOnChildren } from "./index.js";
 
@@ -27,12 +27,18 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
       inputSchema: {
         x: z.number(),
         y: z.number(),
-        points: z.array(z.tuple([z.number(), z.number()])).min(2),
+        points: pointsSchema.min(2),
         style: styleSchema.optional(),
       },
     },
     async ({ x, y, points, style }) => {
-      const object = context.controller.createObject({ type: "line", x, y, points, style });
+      const object = context.controller.createObject({
+        type: "line",
+        x,
+        y,
+        points: points as CreateObjectSpec["points"],
+        style,
+      });
       return textResult({ id: object.id });
     },
   );

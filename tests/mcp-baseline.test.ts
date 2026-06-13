@@ -24,6 +24,7 @@ describe("baseline MCP tools", () => {
   it("calls every baseline tool over InMemoryTransport", async () => {
     const plugin = createExcalidrawPlugin();
     const controller = new CanvasController(plugin);
+    let selectedIds: string[] = [];
     const server = buildMcpServer({
       plugin,
       controller,
@@ -32,6 +33,7 @@ describe("baseline MCP tools", () => {
       requestExport: async () => {
         throw new Error("No browser canvas client is connected");
       },
+      requestSelection: async () => ({ selectedIds }),
     });
     const { client, close } = await connectInMemory(server);
 
@@ -48,6 +50,7 @@ describe("baseline MCP tools", () => {
         }),
       );
       expect(created.id).toBeTruthy();
+      selectedIds = [created.id, "stale-selected-id"];
 
       const objects = jsonContent<Array<{ id: string }>>(
         await client.callTool({ name: "list_objects", arguments: {} }),
@@ -58,6 +61,17 @@ describe("baseline MCP tools", () => {
         await client.callTool({ name: "get_object", arguments: { id: created.id } }),
       );
       expect(object.id).toBe(created.id);
+
+      const selected = jsonContent<{
+        version: number;
+        selectedIds: string[];
+        objects: Array<{ id: string }>;
+        missingIds: string[];
+      }>(await client.callTool({ name: "get_selected_objects", arguments: {} }));
+      expect(selected.version).toBe(controller.currentVersion());
+      expect(selected.selectedIds).toEqual([created.id, "stale-selected-id"]);
+      expect(selected.objects.map((item) => item.id)).toEqual([created.id]);
+      expect(selected.missingIds).toEqual(["stale-selected-id"]);
 
       await client.callTool({ name: "update_object", arguments: { id: created.id, x: 40 } });
       expect(controller.getObject(created.id)?.x).toBe(40);
@@ -90,6 +104,64 @@ describe("baseline MCP tools", () => {
         await client.callTool({ name: "delete_object", arguments: { ids: [created.id] } }),
       );
       expect(deleted.deleted).toEqual([created.id]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("returns an empty selection without treating it as an error", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const server = buildMcpServer({
+      plugin,
+      controller,
+      workspace,
+      clientsConnected: () => 1,
+      requestExport: async () => {
+        throw new Error("not used");
+      },
+      requestSelection: async () => ({ selectedIds: [] }),
+    });
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const selected = jsonContent<{
+        selectedIds: string[];
+        objects: unknown[];
+        missingIds: string[];
+      }>(await client.callTool({ name: "get_selected_objects", arguments: {} }));
+
+      expect(selected).toMatchObject({
+        selectedIds: [],
+        objects: [],
+        missingIds: [],
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  it("returns a clear error when selected objects require a browser and none is connected", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const server = buildMcpServer({
+      plugin,
+      controller,
+      workspace,
+      clientsConnected: () => 0,
+      requestExport: async () => {
+        throw new Error("not used");
+      },
+      requestSelection: async () => {
+        throw new Error("No browser canvas client is connected");
+      },
+    });
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const selected = await client.callTool({ name: "get_selected_objects", arguments: {} });
+      expect((selected as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(selected)).toMatch(/No browser canvas client/);
     } finally {
       await close();
     }

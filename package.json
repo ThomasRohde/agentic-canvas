@@ -33,7 +33,10 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "dev": "tsx src/cli/index.ts --no-open",
+    "dev": "npm run dev:server",
+    "dev:server": "tsx watch --clear-screen=false src/cli/index.ts --no-open",
+    "dev:server:once": "tsx src/cli/index.ts --no-open",
+    "dev:web": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "npm run build:web && npm run build:server",
     "build:web": "vite build",
     "build:server": "tsup",
@@ -43,6 +46,7 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run",
+    "inspect:mcp": "npx -y @modelcontextprotocol/inspector@0.22.0 --transport http --server-url http://127.0.0.1:3333/mcp",
     "version:patch": "npm version patch --no-git-tag-version",
     "version:minor": "npm version minor --no-git-tag-version",
     "version:major": "npm version major --no-git-tag-version",

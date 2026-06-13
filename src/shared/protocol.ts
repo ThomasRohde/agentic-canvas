@@ -4,9 +4,14 @@ export type BrowserToServerMessage =
   | HelloMessage
   | SceneChangedMessage
   | ExportResultMessage
-  | ExportErrorMessage;
+  | ExportErrorMessage
+  | SelectionResultMessage
+  | SelectionErrorMessage;
 
-export type ServerToBrowserMessage = SceneSetMessage | ExportRequestMessage;
+export type ServerToBrowserMessage =
+  | SceneSetMessage
+  | ExportRequestMessage
+  | SelectionRequestMessage;
 
 export interface HelloMessage {
   type: "hello";
@@ -33,6 +38,18 @@ export interface ExportErrorMessage {
   message: string;
 }
 
+export interface SelectionResultMessage {
+  type: "selection:result";
+  id: string;
+  selectedIds: string[];
+}
+
+export interface SelectionErrorMessage {
+  type: "selection:error";
+  id: string;
+  message: string;
+}
+
 export interface SceneSetMessage {
   type: "scene:set";
   version: number;
@@ -46,6 +63,11 @@ export interface ExportRequestMessage {
   id: string;
   mimeType?: "image/png";
   exportPadding?: number;
+}
+
+export interface SelectionRequestMessage {
+  type: "selection:request";
+  id: string;
 }
 
 export function parseBrowserMessage(data: string): BrowserToServerMessage | undefined {

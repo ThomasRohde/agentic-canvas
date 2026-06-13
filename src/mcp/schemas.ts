@@ -27,6 +27,9 @@ export const endpointSchema = z.union([
   z.object({ x: z.number(), y: z.number() }),
 ]);
 
+export const pointSchema = z.array(z.number()).length(2);
+export const pointsSchema = z.array(pointSchema);
+
 export const createObjectShape = {
   type: canvasObjectTypeSchema,
   x: z.number(),
@@ -34,7 +37,7 @@ export const createObjectShape = {
   width: z.number().optional(),
   height: z.number().optional(),
   text: z.string().optional(),
-  points: z.array(z.tuple([z.number(), z.number()])).optional(),
+  points: pointsSchema.optional(),
   style: styleSchema.optional(),
   start: endpointSchema.optional(),
   end: endpointSchema.optional(),
@@ -49,7 +52,7 @@ export const updateObjectShape = {
   width: z.number().optional(),
   height: z.number().optional(),
   text: z.string().optional(),
-  points: z.array(z.tuple([z.number(), z.number()])).optional(),
+  points: pointsSchema.optional(),
   style: styleSchema.optional(),
   start: endpointSchema.optional(),
   end: endpointSchema.optional(),

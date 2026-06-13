@@ -3,6 +3,7 @@ import type {
   BrowserToServerMessage,
   ExportRequestMessage,
   SceneSetMessage,
+  SelectionRequestMessage,
   ServerToBrowserMessage,
 } from "../shared/protocol.js";
 
@@ -12,6 +13,7 @@ export interface CanvasWsClientHandlers {
   onStateChange(state: ConnectionState): void;
   onSceneSet(message: SceneSetMessage): void;
   onExportRequest(message: ExportRequestMessage): void;
+  onSelectionRequest(message: SelectionRequestMessage): void;
 }
 
 export class CanvasWsClient {
@@ -41,8 +43,10 @@ export class CanvasWsClient {
 
       if (message.type === "scene:set") {
         this.handlers.onSceneSet(message);
-      } else {
+      } else if (message.type === "export:request") {
         this.handlers.onExportRequest(message);
+      } else {
+        this.handlers.onSelectionRequest(message);
       }
     });
 
@@ -79,6 +83,14 @@ export class CanvasWsClient {
     this.send({ type: "export:error", id, message });
   }
 
+  sendSelectionResult(id: string, selectedIds: string[]): void {
+    this.send({ type: "selection:result", id, selectedIds });
+  }
+
+  sendSelectionError(id: string, message: string): void {
+    this.send({ type: "selection:error", id, message });
+  }
+
   requestFullScene(): void {
     this.send({ type: "hello" });
   }
@@ -97,7 +109,11 @@ function parseServerMessage(data: unknown): ServerToBrowserMessage | undefined {
 
   try {
     const parsed = JSON.parse(data) as ServerToBrowserMessage;
-    if (parsed.type === "scene:set" || parsed.type === "export:request") {
+    if (
+      parsed.type === "scene:set" ||
+      parsed.type === "export:request" ||
+      parsed.type === "selection:request"
+    ) {
       return parsed;
     }
   } catch {

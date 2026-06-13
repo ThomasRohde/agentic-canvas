@@ -20,8 +20,9 @@ transport.
    operations.
 6. Plugin-specific tools use `PluginToolContext` to mutate or inspect the same
    authoritative scene.
-7. The WebSocket bridge sends scene snapshots to the browser and accepts browser
-   scene replacements.
+7. The WebSocket bridge sends scene snapshots to the browser, accepts browser scene
+   replacements, and handles browser-bound requests such as screenshot export and
+   current selection lookup.
 
 The Node side must stay browser-runtime free. Do not import browser-only canvas
 packages from server, MCP, core, or plugin Node code. The Excalidraw runtime API is
@@ -159,6 +160,7 @@ Baseline tools are registered for every plugin:
 - `save_canvas`
 - `open_canvas`
 - `screenshot`
+- `get_selected_objects`
 
 Plugin tools are optional and engine-specific. Excalidraw currently adds tools such
 as `draw_rectangle`, `draw_arrow`, `create_frame`, `group_objects`, and
@@ -166,6 +168,9 @@ as `draw_rectangle`, `draw_arrow`, `create_frame`, `group_objects`, and
 
 Use baseline tools for common object operations. Add plugin tools only when they
 provide a better engine-native workflow or a higher-level operation.
+Plugin authors do not implement `get_selected_objects` on the Node side; browser
+code reports selected ids and the shared baseline tool resolves them through
+`CanvasController`.
 
 ## Verification Checklist
 
@@ -177,6 +182,7 @@ Before considering a plugin ready:
 - Multi-step tools use `transaction` and emit one scene update.
 - Browser sync can display the native scene and accept browser-origin changes.
 - Screenshot works through a connected browser client.
+- `get_selected_objects` returns normalized objects for a browser selection.
 - Node-side plugin code does not import browser-only canvas packages.
 
 Run:
@@ -187,4 +193,3 @@ npm run lint
 npm test
 npm run build
 ```
-

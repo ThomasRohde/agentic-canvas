@@ -1,6 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { CanvasObjectType, CreateObjectSpec, UpdateObjectPatch } from "../core/scene.js";
+import type {
+  CanvasObject,
+  CanvasObjectType,
+  CreateObjectSpec,
+  UpdateObjectPatch,
+} from "../core/scene.js";
 import type { CanvasController } from "../server/canvasController.js";
 import type { Workspace } from "../server/workspace.js";
 import { canvasObjectTypeSchema, createObjectShape, updateObjectShape } from "./schemas.js";
@@ -10,11 +15,16 @@ export interface ExportResult {
   base64: string;
 }
 
+export interface SelectionResult {
+  selectedIds: string[];
+}
+
 export interface BaselineToolContext {
   controller: CanvasController;
   workspace: Workspace;
   clientsConnected(): number;
   requestExport(options: { exportPadding?: number }): Promise<ExportResult>;
+  requestSelection(options?: { timeoutMs?: number }): Promise<SelectionResult>;
 }
 
 export function registerBaselineTools(server: McpServer, context: BaselineToolContext): void {
@@ -170,6 +180,38 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
           content.push({ type: "text", text: JSON.stringify({ path: written }) });
         }
         return { content };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_selected_objects",
+    {
+      description: "Return normalized objects currently selected in the connected browser.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const selection = await context.requestSelection();
+        const objects: CanvasObject[] = [];
+        const missingIds: string[] = [];
+        for (const id of selection.selectedIds) {
+          const object = context.controller.getObject(id);
+          if (object) {
+            objects.push(object);
+          } else {
+            missingIds.push(id);
+          }
+        }
+
+        return textResult({
+          version: context.controller.currentVersion(),
+          selectedIds: selection.selectedIds,
+          objects,
+          missingIds,
+        });
       } catch (error) {
         return errorResult(error);
       }
