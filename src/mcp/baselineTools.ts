@@ -3,17 +3,21 @@ import { z } from "zod";
 import type {
   CanvasObject,
   CanvasObjectType,
+  CanvasStyle,
   CreateObjectSpec,
   UpdateObjectPatch,
 } from "../core/scene.js";
 import type { CanvasController } from "../server/canvasController.js";
 import type { Workspace } from "../server/workspace.js";
 import {
+  applyCanvasPatchShape,
   canvasObjectTypeSchema,
   colorSchema,
   createObjectShape,
+  findObjectsShape,
   updateObjectShape,
 } from "./schemas.js";
+import type { ApplyCanvasPatchInput, FindObjectsInput } from "./schemas.js";
 
 export interface ExportResult {
   mimeType: string;
@@ -77,6 +81,15 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
   );
 
   server.registerTool(
+    "find_objects",
+    {
+      description: "Find normalized canvas objects by text, type, geometry, style, or metadata.",
+      inputSchema: findObjectsShape,
+    },
+    async (input) => findObjects(context, input as FindObjectsInput),
+  );
+
+  server.registerTool(
     "create_object",
     {
       description: "Create a normalized canvas object.",
@@ -90,6 +103,15 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
         return errorResult(error);
       }
     },
+  );
+
+  server.registerTool(
+    "apply_canvas_patch",
+    {
+      description: "Atomically apply ordered create, update, and delete operations to the canvas.",
+      inputSchema: applyCanvasPatchShape,
+    },
+    async (input) => applyCanvasPatch(context, input as ApplyCanvasPatchInput),
   );
 
   server.registerTool(
@@ -328,4 +350,296 @@ function friendlyOpenError(error: unknown, requestedPath: string): unknown {
   }
 
   return error;
+}
+
+async function findObjects(context: BaselineToolContext, input: FindObjectsInput) {
+  let regex: RegExp | undefined;
+  if (input.textRegex !== undefined) {
+    try {
+      regex = new RegExp(input.textRegex);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+
+  let selectedIds: Set<string> | undefined;
+  if (input.selectedOnly) {
+    try {
+      selectedIds = new Set((await context.requestSelection()).selectedIds);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+
+  const objects = context.controller
+    .listObjects(input.type as CanvasObjectType | undefined)
+    .map((summary) => context.controller.getObject(summary.id))
+    .filter((object): object is CanvasObject => Boolean(object));
+  const boundTextByContainerId = collectBoundText(context.controller);
+  const matched = objects.filter((object) =>
+    matchesFindInput(object, input, regex, selectedIds, boundTextByContainerId),
+  );
+  const limited = input.limit ? matched.slice(0, input.limit) : matched;
+
+  return textResult({
+    count: limited.length,
+    ids: limited.map((object) => object.id),
+    objects: limited,
+  });
+}
+
+function matchesFindInput(
+  object: CanvasObject,
+  input: FindObjectsInput,
+  regex?: RegExp,
+  selectedIds?: Set<string>,
+  boundTextByContainerId?: Map<string, string[]>,
+): boolean {
+  const searchableText = textForSearch(object, boundTextByContainerId);
+  if (selectedIds && !selectedIds.has(object.id)) {
+    return false;
+  }
+  if (input.textContains !== undefined && !searchableText.includes(input.textContains)) {
+    return false;
+  }
+  if (regex && !regex.test(searchableText)) {
+    return false;
+  }
+  if (input.frameId !== undefined && object.frameId !== input.frameId) {
+    return false;
+  }
+  if (input.groupId !== undefined && !object.groupIds.includes(input.groupId)) {
+    return false;
+  }
+  if (input.bbox && !matchesBoundingBox(object, input.bbox, input.bboxMode ?? "intersects")) {
+    return false;
+  }
+  if (input.style && !matchesStyle(object, input.style)) {
+    return false;
+  }
+  if (input.link !== undefined && !(object.raw.link ?? "").includes(input.link)) {
+    return false;
+  }
+  if (input.metadata && !matchesMetadata(object, input.metadata)) {
+    return false;
+  }
+
+  return true;
+}
+
+function collectBoundText(controller: CanvasController): Map<string, string[]> {
+  const byContainerId = new Map<string, string[]>();
+  for (const summary of controller.listObjects("text")) {
+    const object = controller.getObject(summary.id);
+    if (!object?.containerId || !object.text) {
+      continue;
+    }
+
+    byContainerId.set(object.containerId, [
+      ...(byContainerId.get(object.containerId) ?? []),
+      object.text,
+    ]);
+  }
+  return byContainerId;
+}
+
+function textForSearch(
+  object: CanvasObject,
+  boundTextByContainerId?: Map<string, string[]>,
+): string {
+  return [object.text, ...(boundTextByContainerId?.get(object.id) ?? [])]
+    .filter((text): text is string => Boolean(text))
+    .join("\n");
+}
+
+function matchesBoundingBox(
+  object: CanvasObject,
+  bbox: NonNullable<FindObjectsInput["bbox"]>,
+  mode: NonNullable<FindObjectsInput["bboxMode"]>,
+): boolean {
+  const objectRight = object.x + object.width;
+  const objectBottom = object.y + object.height;
+  const bboxRight = bbox.x + bbox.width;
+  const bboxBottom = bbox.y + bbox.height;
+
+  if (mode === "contains") {
+    return (
+      object.x >= bbox.x &&
+      object.y >= bbox.y &&
+      objectRight <= bboxRight &&
+      objectBottom <= bboxBottom
+    );
+  }
+
+  return (
+    object.x <= bboxRight &&
+    objectRight >= bbox.x &&
+    object.y <= bboxBottom &&
+    objectBottom >= bbox.y
+  );
+}
+
+function matchesStyle(
+  object: CanvasObject,
+  style: NonNullable<FindObjectsInput["style"]>,
+): boolean {
+  return Object.entries(style).every(([field, value]) => {
+    const styleField = field as keyof CanvasStyle;
+    return object.style[styleField] === value;
+  });
+}
+
+function matchesMetadata(
+  object: CanvasObject,
+  metadata: NonNullable<FindObjectsInput["metadata"]>,
+): boolean {
+  const customData = object.raw.customData ?? {};
+  if (!Object.prototype.hasOwnProperty.call(customData, metadata.key)) {
+    return false;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(metadata, "value")) {
+    return customData[metadata.key] === metadata.value;
+  }
+
+  return true;
+}
+
+interface PatchResult {
+  idMap: Record<string, string>;
+  created: string[];
+  updated: string[];
+  deleted: string[];
+  warnings: string[];
+  objects?: CanvasObject[];
+}
+
+class DryRunComplete extends Error {
+  constructor(readonly payload: PatchResult) {
+    super("Dry run complete");
+  }
+}
+
+function applyCanvasPatch(context: BaselineToolContext, input: ApplyCanvasPatchInput) {
+  try {
+    const result = context.controller.transaction(() => {
+      const payload = executePatchOperations(context.controller, input);
+      if (input.dryRun) {
+        throw new DryRunComplete(payload);
+      }
+      return payload;
+    });
+
+    return textResult({ ...result, version: context.controller.currentVersion() });
+  } catch (error) {
+    if (error instanceof DryRunComplete) {
+      return textResult({
+        ...error.payload,
+        dryRun: true,
+        version: context.controller.currentVersion(),
+      });
+    }
+
+    return errorResult(error);
+  }
+}
+
+function executePatchOperations(
+  controller: CanvasController,
+  input: ApplyCanvasPatchInput,
+): PatchResult {
+  const idMap: Record<string, string> = {};
+  const created: string[] = [];
+  const updated: string[] = [];
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+
+  for (const operation of input.operations) {
+    if (operation.op === "create") {
+      if (operation.key && idMap[operation.key]) {
+        throw new Error(`Duplicate patch key: ${operation.key}`);
+      }
+
+      const object = controller.createObject(
+        resolveCreateSpec(operation.spec as CreateObjectSpec, idMap),
+      );
+      created.push(object.id);
+      if (operation.key) {
+        idMap[operation.key] = object.id;
+      }
+      continue;
+    }
+
+    if (operation.op === "update") {
+      const id = resolveId(operation.id, idMap);
+      const object = controller.updateObject(
+        id,
+        resolveUpdatePatch(operation.patch as UpdateObjectPatch, idMap),
+      );
+      if (!object) {
+        throw new Error(`Object not found: ${id}`);
+      }
+      updated.push(object.id);
+      continue;
+    }
+
+    const ids = operation.ids.map((id) => resolveId(id, idMap));
+    assertObjectsExist(controller, ids);
+    deleted.push(...controller.deleteObjects(ids));
+  }
+
+  const result: PatchResult = { idMap, created, updated, deleted, warnings };
+  if (input.returnObjects) {
+    result.objects = [...new Set([...created, ...updated])]
+      .map((id) => controller.getObject(id))
+      .filter((object): object is CanvasObject => Boolean(object));
+  }
+
+  return result;
+}
+
+function resolveCreateSpec(
+  spec: CreateObjectSpec,
+  idMap: Record<string, string>,
+): CreateObjectSpec {
+  return {
+    ...spec,
+    containerId: spec.containerId ? resolveId(spec.containerId, idMap) : undefined,
+    start: resolveEndpoint(spec.start, idMap),
+    end: resolveEndpoint(spec.end, idMap),
+  };
+}
+
+function resolveUpdatePatch(
+  patch: UpdateObjectPatch,
+  idMap: Record<string, string>,
+): UpdateObjectPatch {
+  return {
+    ...patch,
+    containerId: patch.containerId ? resolveId(patch.containerId, idMap) : undefined,
+    start: resolveEndpoint(patch.start, idMap),
+    end: resolveEndpoint(patch.end, idMap),
+  };
+}
+
+function resolveEndpoint<T extends CreateObjectSpec["start"] | undefined>(
+  endpoint: T,
+  idMap: Record<string, string>,
+): T {
+  if (!endpoint || !("elementId" in endpoint)) {
+    return endpoint;
+  }
+
+  return { elementId: resolveId(endpoint.elementId, idMap) } as T;
+}
+
+function resolveId(id: string, idMap: Record<string, string>): string {
+  return idMap[id] ?? id;
+}
+
+function assertObjectsExist(controller: CanvasController, ids: string[]): void {
+  const missingIds = ids.filter((id) => !controller.getObject(id));
+  if (missingIds.length > 0) {
+    throw new Error(`Object not found: ${missingIds.join(", ")}`);
+  }
 }

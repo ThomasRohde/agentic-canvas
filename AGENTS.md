@@ -4,6 +4,15 @@
 
 Agentic Canvas is a local-first, browser-based visual canvas that an AI agent controls through a local MCP server. The first canvas plugin embeds Excalidraw. A single `npx @trohde/agentic-canvas` process serves the browser app, hosts an MCP server over Streamable HTTP, and syncs the canvas to the browser over WebSocket.
 
+## Canvas operation guidance
+
+- Inspect the scene with `get_canvas_state` and `find_objects` before editing an existing diagram.
+- Use `get_object` before destructive updates when an id is uncertain.
+- Prefer `apply_canvas_patch` for multi-object create/update/delete work so related changes are atomic.
+- Prefer `connect_objects` for drawing several relationships, then use `auto_layout_objects` or `align_distribute_objects` to clean up diagram legibility.
+- Do not call `clear_canvas` unless the user explicitly asks to erase the whole canvas.
+- Use `save_canvas` for important results before risky edits or handoff.
+
 ## Working rules
 
 - Make the smallest correct change.

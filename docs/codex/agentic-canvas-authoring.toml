@@ -1,0 +1,33 @@
+[mcp_servers.agentic-canvas]
+url = "http://127.0.0.1:3333/mcp"
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+default_tools_approval_mode = "prompt"
+enabled_tools = [
+  "get_canvas_state",
+  "list_objects",
+  "get_object",
+  "find_objects",
+  "get_selected_objects",
+  "screenshot",
+  "apply_canvas_patch",
+  "draw_rectangle",
+  "draw_ellipse",
+  "draw_diamond",
+  "draw_line",
+  "draw_arrow",
+  "add_text",
+  "connect_objects",
+  "align_distribute_objects",
+  "auto_layout_objects",
+  "create_frame",
+  "group_objects",
+  "ungroup_objects",
+  "remove_from_frame",
+  "create_flowchart",
+  "select_objects",
+  "set_canvas_background",
+  "save_canvas",
+  "undo",
+  "redo",
+]

@@ -19,7 +19,8 @@ transport.
 5. Baseline tools call the plugin through `CanvasController` for normalized object
    operations.
 6. Plugin-specific tools use `PluginToolContext` to mutate or inspect the same
-   authoritative scene.
+   authoritative scene, and may request the current browser selection for
+   selection-based tool fallbacks.
 7. The WebSocket bridge sends scene snapshots to the browser, accepts browser scene
    replacements, and handles browser-bound requests such as screenshot export and
    current selection lookup.
@@ -104,6 +105,8 @@ should still pass through the existing baseline MCP tests once the plugin is wir
 
    Use `server.registerTool` from `@modelcontextprotocol/sdk/server/mcp.js` and raw
    Zod shape input schemas, matching the MCP SDK v1 style used in this repo.
+   Use `context.requestSelection()` only when a plugin tool intentionally supports
+   omitted ids by falling back to the connected browser selection.
 
    Return JSON as text content for ordinary results:
 

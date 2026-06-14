@@ -1,10 +1,16 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { PluginToolContext } from "../../core/plugin.js";
-import type { CreateObjectSpec } from "../../core/scene.js";
+import type { CanvasObject, CreateObjectSpec, UpdateObjectPatch } from "../../core/scene.js";
 import { endpointSchema, pointsSchema, styleSchema } from "../../mcp/schemas.js";
 import { planFlowchart } from "./flowchart.js";
 import { groupElements, removeFromFrame, setFrameOnChildren, ungroupElements } from "./index.js";
+import {
+  type LayoutObject,
+  type LayoutUpdate,
+  planAlignDistribute,
+  planGridLayout,
+} from "./layout.js";
 
 const shapeInput = {
   x: z.number(),
@@ -13,6 +19,14 @@ const shapeInput = {
   height: z.number().positive(),
   text: z.string().min(1).optional(),
   style: styleSchema.optional(),
+};
+
+const alignModeSchema = z.enum(["left", "center", "right", "top", "middle", "bottom"]);
+const distributeModeSchema = z.enum(["horizontal", "vertical"]);
+const autoLayoutModeSchema = z.enum(["grid", "tree", "layered-dag", "pack-frames", "swimlanes"]);
+
+const layoutIdsInput = {
+  ids: z.array(z.string()).min(1).optional(),
 };
 
 export function registerExcalidrawTools(server: McpServer, context: PluginToolContext): void {
@@ -40,6 +54,46 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
         style,
       });
       return textResult({ id: object.id });
+    },
+  );
+
+  server.registerTool(
+    "connect_objects",
+    {
+      description: "Create one or more bound arrows between existing Excalidraw objects.",
+      inputSchema: {
+        edges: z
+          .array(
+            z.object({
+              fromId: z.string(),
+              toId: z.string(),
+              label: z.string().min(1).optional(),
+              style: styleSchema.optional(),
+            }),
+          )
+          .min(1),
+      },
+    },
+    async ({ edges }) => {
+      try {
+        const arrowIds = context.controller.transaction(() =>
+          edges.map(
+            (edge) =>
+              context.controller.createObject({
+                type: "arrow",
+                x: 0,
+                y: 0,
+                start: { elementId: edge.fromId },
+                end: { elementId: edge.toId },
+                text: edge.label,
+                style: edge.style,
+              }).id,
+          ),
+        );
+        return textResult({ arrowIds });
+      } catch (error) {
+        return errorResult(error);
+      }
     },
   );
 
@@ -253,6 +307,75 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
       }
     },
   );
+
+  server.registerTool(
+    "align_distribute_objects",
+    {
+      description: "Align, distribute, or equalize existing Excalidraw objects.",
+      inputSchema: {
+        ...layoutIdsInput,
+        align: alignModeSchema.optional(),
+        distribute: distributeModeSchema.optional(),
+        equalizeWidth: z.boolean().optional(),
+        equalizeHeight: z.boolean().optional(),
+        snapToGrid: z.number().positive().optional(),
+      },
+    },
+    async ({ ids, align, distribute, equalizeWidth, equalizeHeight, snapToGrid }) => {
+      if (!align && !distribute && !equalizeWidth && !equalizeHeight) {
+        return errorResult("At least one alignment, distribution, or equalize option is required");
+      }
+
+      try {
+        const objectIds = await resolveLayoutIds(context, ids);
+        const warnings: string[] = [];
+        const objects = collectLayoutObjects(context, objectIds, warnings);
+        const updates = planAlignDistribute(objects, {
+          align,
+          distribute,
+          equalizeWidth,
+          equalizeHeight,
+          snapToGrid,
+        });
+        const updated = applyLayoutUpdates(context, updates);
+        return textResult({ updated, warnings });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "auto_layout_objects",
+    {
+      description: "Automatically lay out existing Excalidraw objects. Grid mode is supported.",
+      inputSchema: {
+        ...layoutIdsInput,
+        mode: autoLayoutModeSchema,
+        columns: z.number().int().positive().optional(),
+        gapX: z.number().nonnegative().optional(),
+        gapY: z.number().nonnegative().optional(),
+        originX: z.number().optional(),
+        originY: z.number().optional(),
+      },
+    },
+    async ({ ids, mode, columns, gapX, gapY, originX, originY }) => {
+      if (mode !== "grid") {
+        return textResult({ mode, updated: [], warnings: [`mode '${mode}' not yet implemented`] });
+      }
+
+      try {
+        const objectIds = await resolveLayoutIds(context, ids);
+        const warnings: string[] = [];
+        const objects = collectLayoutObjects(context, objectIds, warnings);
+        const updates = planGridLayout(objects, { columns, gapX, gapY, originX, originY });
+        const updated = applyLayoutUpdates(context, updates);
+        return textResult({ mode, updated, warnings });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
 }
 
 function registerShapeTool(
@@ -286,4 +409,73 @@ function errorResult(error: unknown) {
     isError: true,
     content: [{ type: "text" as const, text: message }],
   };
+}
+
+async function resolveLayoutIds(context: PluginToolContext, ids?: string[]): Promise<string[]> {
+  if (ids) {
+    return ids;
+  }
+
+  return (await context.requestSelection()).selectedIds;
+}
+
+function collectLayoutObjects(
+  context: PluginToolContext,
+  ids: string[],
+  warnings: string[],
+): LayoutObject[] {
+  const objects: LayoutObject[] = [];
+  for (const id of ids) {
+    const object = context.controller.getObject(id);
+    if (!object) {
+      throw new Error(`Object not found: ${id}`);
+    }
+
+    const skipReason = layoutSkipReason(object);
+    if (skipReason) {
+      warnings.push(`${id}: ${skipReason}`);
+      continue;
+    }
+
+    objects.push({
+      id: object.id,
+      x: object.x,
+      y: object.y,
+      width: object.width,
+      height: object.height,
+    });
+  }
+
+  return objects;
+}
+
+function layoutSkipReason(object: CanvasObject): string | undefined {
+  if (object.raw.locked) {
+    return "locked objects are skipped";
+  }
+  if (object.type === "arrow" || object.type === "line") {
+    return "linear objects are skipped";
+  }
+  if (object.containerId) {
+    return "bound labels are skipped";
+  }
+
+  return undefined;
+}
+
+function applyLayoutUpdates(context: PluginToolContext, updates: LayoutUpdate[]): string[] {
+  if (updates.length === 0) {
+    return [];
+  }
+
+  return context.controller.transaction(() =>
+    updates.map((update) => {
+      const { id, ...patch } = update;
+      const object = context.controller.updateObject(id, patch as UpdateObjectPatch);
+      if (!object) {
+        throw new Error(`Object not found: ${id}`);
+      }
+      return object.id;
+    }),
+  );
 }

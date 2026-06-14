@@ -48,6 +48,7 @@ export interface PluginToolContext {
     mutateScene<T>(mutator: (scene: Scene) => T): T;
     transaction<T>(fn: () => T): T;
   };
+  requestSelection(options?: { timeoutMs?: number }): Promise<{ selectedIds: string[] }>;
 }
 ```
 
@@ -59,6 +60,10 @@ Use `transaction` when a tool performs more than one scene mutation. Without a
 transaction, each mutation increments the scene version and broadcasts separately.
 Transactions are atomic: if the callback throws, the controller restores the scene
 to its pre-transaction snapshot and does not broadcast partial changes.
+
+Use `requestSelection` only for browser-bound tool paths where omitted ids should
+fall back to the current browser selection. Return its error through the normal
+`isError: true` tool response when no browser is connected.
 
 ## Scene And Serialization
 
@@ -243,7 +248,7 @@ the dependency strategy changes for the whole project.
 
 ```ts
 registerBaselineTools(server, baselineContext);
-plugin.registerTools(server, { controller });
+plugin.registerTools(server, { controller, requestSelection });
 ```
 
 Baseline tools provided for every plugin:
@@ -251,7 +256,9 @@ Baseline tools provided for every plugin:
 - `get_canvas_state`
 - `list_objects`
 - `get_object`
+- `find_objects`
 - `create_object`
+- `apply_canvas_patch`
 - `update_object`
 - `delete_object`
 - `clear_canvas`

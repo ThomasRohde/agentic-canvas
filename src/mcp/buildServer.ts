@@ -5,6 +5,7 @@ import type { Workspace } from "../server/workspace.js";
 import { MCP_SERVER_NAME, readPackageInfo } from "../shared/packageInfo.js";
 import type { ExportResult, SelectionResult, SelectionSetResult } from "./baselineTools.js";
 import { registerBaselineTools } from "./baselineTools.js";
+import { MCP_INSTRUCTIONS } from "./instructions.js";
 
 export interface BuildMcpServerOptions {
   plugin: CanvasPlugin;
@@ -21,10 +22,13 @@ export interface BuildMcpServerOptions {
 
 export function buildMcpServer(options: BuildMcpServerOptions): McpServer {
   const packageInfo = readPackageInfo();
-  const server = new McpServer({
-    name: MCP_SERVER_NAME,
-    version: packageInfo.version,
-  });
+  const server = new McpServer(
+    {
+      name: MCP_SERVER_NAME,
+      version: packageInfo.version,
+    },
+    { instructions: MCP_INSTRUCTIONS },
+  );
 
   registerBaselineTools(server, {
     controller: options.controller,
@@ -37,6 +41,7 @@ export function buildMcpServer(options: BuildMcpServerOptions): McpServer {
 
   options.plugin.registerTools(server, {
     controller: options.controller,
+    requestSelection: options.requestSelection,
   });
 
   return server;

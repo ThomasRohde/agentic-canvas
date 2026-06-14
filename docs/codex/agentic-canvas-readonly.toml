@@ -1,0 +1,13 @@
+[mcp_servers.agentic-canvas]
+url = "http://127.0.0.1:3333/mcp"
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+default_tools_approval_mode = "prompt"
+enabled_tools = [
+  "get_canvas_state",
+  "list_objects",
+  "get_object",
+  "find_objects",
+  "get_selected_objects",
+  "screenshot",
+]

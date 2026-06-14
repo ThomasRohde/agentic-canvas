@@ -11,7 +11,7 @@ Executable: `agentic-canvas`
 - Node.js 20.19 or newer
 - npm
 - A modern browser
-- An MCP-capable client, such as Claude Code or Claude Desktop
+- An MCP-capable client, such as Codex, Claude Code, or Claude Desktop
 
 ## Setup
 
@@ -59,7 +59,8 @@ npm run dev:web
 
 Open `http://127.0.0.1:5173` for the Vite UI. MCP clients should still connect to the backend at `http://127.0.0.1:3333/mcp`.
 
-See `docs/mcp-dev.md` for Codex configuration, MCP Inspector usage, and restart expectations.
+See `docs/mcp-dev.md` for Codex configuration, example profiles in `docs/codex/`,
+MCP Inspector usage, and restart expectations.
 
 ## Connect An MCP Client
 
@@ -69,14 +70,21 @@ With the server running on the default port:
 claude mcp add --transport http agentic-canvas http://127.0.0.1:3333/mcp
 ```
 
+Codex example profiles are committed under `docs/codex/` for readonly, authoring, and
+dangerous tool sets. Copy one into your local Codex config instead of committing an
+active `.codex/config.toml`.
+
 Example tool flow:
 
-1. Call `draw_rectangle` with `{ "x": 100, "y": 100, "width": 200, "height": 120, "text": "Hello" }`; a labeled rectangle appears in the browser.
-2. Select the rectangle in the browser and call `get_selected_objects`; the tool returns the selected normalized object.
-3. Call `select_objects` with the rectangle id to select it from the MCP client.
-4. Call `screenshot`; the tool returns a PNG image.
-5. Call `save_canvas` with `{ "path": "demo.excalidraw" }`; the file is written inside the workspace.
-6. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo.excalidraw" }`; the saved scene is restored.
+1. Call `apply_canvas_patch` to create several nodes in one atomic change.
+2. Call `connect_objects` to add bound arrows between the nodes.
+3. Call `auto_layout_objects` or `align_distribute_objects` to clean up spacing.
+4. Call `find_objects` to locate objects by type, label text, geometry, style, link, or metadata.
+5. Select an object in the browser and call `get_selected_objects`; the tool returns the selected normalized object.
+6. Call `select_objects` with an object id to select it from the MCP client.
+7. Call `screenshot`; the tool returns a PNG image.
+8. Call `save_canvas` with `{ "path": "demo.excalidraw" }`; the file is written inside the workspace.
+9. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo.excalidraw" }`; the saved scene is restored.
 
 ## Test And Build
 
@@ -149,7 +157,7 @@ src/plugins/excalidraw/  Excalidraw plugin, element builder, adapter, tools
 src/web/                 React + Excalidraw browser app
 src/shared/              Shared protocol and logger
 tests/                   Vitest unit and integration tests
-docs/                    Architecture notes
+docs/                    Architecture notes, MCP development docs, Codex profiles
 scripts/                 Release and package smoke scripts
 .github/workflows/       CI and npm publish workflows
 ```
@@ -160,4 +168,4 @@ scripts/                 Release and package smoke scripts
 - Single browser session is the expected mode.
 - Full-scene sync is used instead of diffs or CRDT collaboration.
 - Screenshot and selection tools require a connected browser.
-- The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, save/open, and screenshot.
+- The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, object search, atomic patches, layout cleanup, save/open, and screenshot.

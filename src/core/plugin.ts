@@ -19,6 +19,7 @@ export interface PluginToolContext {
     mutateScene<T>(mutator: (scene: Scene) => T): T;
     transaction<T>(fn: () => T): T;
   };
+  requestSelection(options?: { timeoutMs?: number }): Promise<{ selectedIds: string[] }>;
 }
 
 export interface CanvasPlugin {

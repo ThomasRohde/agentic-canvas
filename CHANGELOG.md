@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.0 - 2026-06-14
+
+- Added MCP server instructions to guide agent tool use.
+- Added `find_objects` and `apply_canvas_patch` baseline MCP tools for semantic search and atomic multi-object edits.
+- Added Excalidraw `connect_objects`, `align_distribute_objects`, and `auto_layout_objects` MCP tools.
+- Added deterministic layout planning, Codex MCP profile examples, canvas operation guidance, and expanded MCP/layout tests.
+
 ## 0.2.0 - 2026-06-13
 
 - Added browser-backed `select_objects`, shared `set_canvas_background`, and in-memory `undo`/`redo` MCP tools.

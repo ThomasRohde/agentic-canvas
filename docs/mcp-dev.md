@@ -69,6 +69,9 @@ tool_timeout_sec = 60
 default_tools_approval_mode = "prompt"
 ```
 
+Example readonly, authoring, and dangerous tool profiles live in `docs/codex/`.
+Keep them as examples; do not commit an active project `.codex/config.toml`.
+
 Start `npm run dev` before opening a Codex session that uses this MCP server. If the
 backend restarts, existing MCP sessions may need to reconnect. If tool names, schemas,
 or server instructions change and Codex does not refresh them, start a fresh Codex
