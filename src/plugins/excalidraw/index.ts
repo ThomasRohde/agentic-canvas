@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { CanvasPlugin, PluginToolContext } from "../../core/plugin.js";
+import type {
+  CanvasPluginCapabilities,
+  PluginToolContext,
+  ShapeCanvasPlugin,
+} from "../../core/plugin.js";
 import type {
   CanvasMetadata,
   CanvasObject,
@@ -8,8 +12,9 @@ import type {
   CanvasStyle,
   CreateObjectSpec,
   ExcalidrawElement,
+  ExcalidrawNative,
   Scene,
-  SerializedScene,
+  SerializedExcalidrawScene,
   UpdateObjectPatch,
 } from "../../core/scene.js";
 import { isElementEndpoint } from "../../core/scene.js";
@@ -21,10 +26,12 @@ import { type Point, centerPoint, edgePoint } from "./geometry.js";
 import { measureTextBounds } from "./textMetrics.js";
 import { registerExcalidrawTools } from "./tools.js";
 
-export function createExcalidrawPlugin(): CanvasPlugin {
+export function createExcalidrawPlugin(): ShapeCanvasPlugin {
   return {
     name: "excalidraw",
+    fileExtension: ".excalidraw",
     createInitialScene,
+    getCapabilities,
     getMetadata,
     listObjects,
     getObject,
@@ -32,6 +39,7 @@ export function createExcalidrawPlugin(): CanvasPlugin {
     updateObject,
     deleteObjects,
     clear,
+    normalizeBrowserScene,
     serialize,
     deserialize,
     registerTools,
@@ -40,12 +48,68 @@ export function createExcalidrawPlugin(): CanvasPlugin {
 
 function createInitialScene(): Scene {
   return {
-    elements: [],
+    native: {
+      elements: [],
+      files: {},
+    },
     appState: {
       viewBackgroundColor: "#ffffff",
     },
-    files: {},
     version: 0,
+  };
+}
+
+function getCapabilities(): CanvasPluginCapabilities {
+  return {
+    pluginTools: [
+      "draw_rectangle",
+      "draw_ellipse",
+      "draw_diamond",
+      "draw_line",
+      "draw_arrow",
+      "add_text",
+      "create_frame",
+      "group_objects",
+      "ungroup_objects",
+      "remove_from_frame",
+      "connect_objects",
+      "create_flowchart",
+      "align_distribute_objects",
+      "auto_layout_objects",
+    ],
+    preferredTools: {
+      inspect: [
+        "get_canvas_state",
+        "get_canvas_capabilities",
+        "find_objects",
+        "list_objects",
+        "get_object",
+      ],
+      create: [
+        "apply_canvas_patch",
+        "create_flowchart",
+        "draw_rectangle",
+        "draw_ellipse",
+        "draw_diamond",
+        "add_text",
+      ],
+      update: [
+        "update_object",
+        "apply_canvas_patch",
+        "create_frame",
+        "group_objects",
+        "ungroup_objects",
+        "remove_from_frame",
+      ],
+      connect: ["connect_objects", "draw_arrow", "draw_line"],
+      layout: ["auto_layout_objects", "align_distribute_objects"],
+      file: ["save_canvas", "open_canvas", "screenshot"],
+    },
+    usageGuidance: [
+      "Use Excalidraw for freeform diagrams, flowcharts, presentation sketches, and annotated visual layouts.",
+      "Prefer apply_canvas_patch for multi-object changes so related shape edits are atomic.",
+      "Prefer connect_objects for relationships between existing objects, then use auto_layout_objects or align_distribute_objects for legibility.",
+    ],
   };
 }
 
@@ -54,13 +118,14 @@ function getMetadata(scene: Scene): CanvasMetadata {
     canvas: "excalidraw",
     version: scene.version,
     objectCount: listObjects(scene).length,
-    viewBackgroundColor: scene.appState.viewBackgroundColor,
+    viewBackgroundColor:
+      (scene.appState as { viewBackgroundColor?: string }).viewBackgroundColor ?? "#ffffff",
   };
 }
 
 function listObjects(scene: Scene, type?: CanvasObjectType): CanvasObjectSummary[] {
-  return scene.elements
-    .map(toCanvasObjectSummary)
+  return native(scene)
+    .elements.map(toCanvasObjectSummary)
     .filter((object): object is CanvasObjectSummary => Boolean(object))
     .filter((object) => !type || object.type === type);
 }
@@ -77,7 +142,7 @@ function createObject(scene: Scene, spec: CreateObjectSpec): CanvasObject {
   }
 
   const element = buildElementWithBindings(scene, spec);
-  scene.elements.push(element);
+  native(scene).elements.push(element);
 
   if (spec.type === "text" && spec.containerId) {
     addBoundElementById(scene, spec.containerId, { id: element.id, type: "text" });
@@ -85,7 +150,7 @@ function createObject(scene: Scene, spec: CreateObjectSpec): CanvasObject {
 
   if (spec.text && canCreateBoundLabel(spec.type)) {
     const label = createBoundLabel(element, spec.text, spec.style);
-    scene.elements.push(label);
+    native(scene).elements.push(label);
   }
 
   const object = toCanvasObject(element);
@@ -163,7 +228,7 @@ function updateObject(
 function deleteObjects(scene: Scene, ids: string[]): string[] {
   const idSet = new Set(ids);
   const deleted = new Set<string>();
-  for (const element of scene.elements) {
+  for (const element of native(scene).elements) {
     if (idSet.has(element.id) || idSet.has(element.containerId ?? "")) {
       deleted.add(element.id);
     }
@@ -173,8 +238,8 @@ function deleteObjects(scene: Scene, ids: string[]): string[] {
     return [];
   }
 
-  scene.elements = scene.elements.filter((element) => !deleted.has(element.id));
-  for (const element of scene.elements) {
+  native(scene).elements = native(scene).elements.filter((element) => !deleted.has(element.id));
+  for (const element of native(scene).elements) {
     if (!element.boundElements) {
       continue;
     }
@@ -190,11 +255,38 @@ function deleteObjects(scene: Scene, ids: string[]): string[] {
 }
 
 function clear(scene: Scene): void {
-  scene.elements = [];
-  scene.files = {};
+  native(scene).elements = [];
+  native(scene).files = {};
 }
 
-function serialize(scene: Scene): SerializedScene {
+function normalizeBrowserScene(
+  incomingNative: unknown,
+  appState: unknown,
+  currentScene: Scene,
+): { native: ExcalidrawNative; appState: { viewBackgroundColor: string } } {
+  const payload =
+    typeof incomingNative === "object" && incomingNative !== null
+      ? (incomingNative as Partial<ExcalidrawNative>)
+      : {};
+  const incomingAppState =
+    typeof appState === "object" && appState !== null
+      ? (appState as Partial<{ viewBackgroundColor: string }>)
+      : {};
+  return {
+    native: {
+      elements: Array.isArray(payload.elements) ? payload.elements : native(currentScene).elements,
+      files: payload.files ?? native(currentScene).files,
+    },
+    appState: {
+      viewBackgroundColor:
+        incomingAppState.viewBackgroundColor ??
+        (currentScene.appState as { viewBackgroundColor?: string }).viewBackgroundColor ??
+        "#ffffff",
+    },
+  };
+}
+
+function serialize(scene: Scene): SerializedExcalidrawScene {
   return serializeScene(scene);
 }
 
@@ -203,7 +295,7 @@ function deserialize(raw: string): Scene {
 }
 
 function registerTools(
-  server: Parameters<CanvasPlugin["registerTools"]>[0],
+  server: Parameters<ShapeCanvasPlugin["registerTools"]>[0],
   context: PluginToolContext,
 ): void {
   registerExcalidrawTools(server, context);
@@ -282,7 +374,7 @@ function upsertContainerLabel(
   text: string,
   style?: CreateObjectSpec["style"],
 ): void {
-  const existing = scene.elements.find(
+  const existing = native(scene).elements.find(
     (element) => element.type === "text" && element.containerId === container.id,
   );
   if (existing) {
@@ -296,7 +388,7 @@ function upsertContainerLabel(
     return;
   }
 
-  scene.elements.push(createBoundLabel(container, text, style));
+  native(scene).elements.push(createBoundLabel(container, text, style));
 }
 
 function createBoundLabel(
@@ -382,7 +474,7 @@ function addBoundElementById(
 }
 
 export function findElement(scene: Scene, id: string): ExcalidrawElement | undefined {
-  return scene.elements.find((element) => element.id === id && !element.isDeleted);
+  return native(scene).elements.find((element) => element.id === id && !element.isDeleted);
 }
 
 export function setFrameOnChildren(scene: Scene, childIds: string[], frameId: string): string[] {
@@ -595,7 +687,7 @@ function syncBoundElements(scene: Scene, element: ExcalidrawElement): void {
 }
 
 function relayoutBoundLabels(scene: Scene, container: ExcalidrawElement): void {
-  for (const label of scene.elements.filter(
+  for (const label of native(scene).elements.filter(
     (candidate) => candidate.type === "text" && candidate.containerId === container.id,
   )) {
     positionBoundLabel(label, container);
@@ -612,7 +704,7 @@ function applyTextStyleToBoundLabels(
     return;
   }
 
-  for (const label of scene.elements.filter(
+  for (const label of native(scene).elements.filter(
     (candidate) => candidate.type === "text" && candidate.containerId === container.id,
   )) {
     applyStyle(label, {
@@ -641,7 +733,7 @@ function rerouteBoundArrows(scene: Scene, changedElement: ExcalidrawElement): vo
       .map((bound) => bound.id),
   );
 
-  for (const candidate of scene.elements) {
+  for (const candidate of native(scene).elements) {
     if (
       isLinearElement(candidate) &&
       (candidate.startBinding?.elementId === changedElement.id ||
@@ -734,4 +826,8 @@ function linearWidth(points: [number, number][]): number {
 function linearHeight(points: [number, number][]): number {
   const ys = points.map(([, y]) => y);
   return Math.max(...ys) - Math.min(...ys);
+}
+
+function native(scene: Scene): ExcalidrawNative {
+  return scene.native as ExcalidrawNative;
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import open from "open";
+import { availableCanvasNames } from "../plugins/registry.js";
 import { startHttpServer } from "../server/httpServer.js";
 import { createLogger } from "../shared/logger.js";
 import { CLI_NAME, PACKAGE_NAME, readPackageInfo } from "../shared/packageInfo.js";
@@ -33,8 +34,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args.values.canvas !== "excalidraw") {
-    throw new Error(`Unknown canvas "${args.values.canvas}". Available canvases: excalidraw`);
+  const canvas = String(args.values.canvas ?? "excalidraw");
+  if (!availableCanvasNames().includes(canvas)) {
+    throw new Error(
+      `Unknown canvas "${canvas}". Available canvases: ${availableCanvasNames().join(", ")}`,
+    );
   }
 
   const requestedPort = Number(args.values.port);
@@ -43,7 +47,7 @@ async function main(): Promise<void> {
   }
 
   const running = await startHttpServer({
-    canvas: "excalidraw",
+    canvas,
     host: String(args.values.host),
     port: requestedPort,
     workspace: String(args.values.workspace),
@@ -67,7 +71,7 @@ Usage:
   ${CLI_NAME} --canvas excalidraw
 
 Options:
-  --canvas <name>      Canvas plugin, currently excalidraw (default: excalidraw)
+  --canvas <name>      Canvas plugin, one of ${availableCanvasNames().join(", ")} (default: excalidraw)
   --port <n>           Port (default: 3333 or AGENTIC_CANVAS_PORT)
   --host <host>        Bind host (default: 127.0.0.1 or AGENTIC_CANVAS_HOST)
   --workspace <dir>    Save/open/screenshot workspace (default: cwd)

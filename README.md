@@ -1,6 +1,6 @@
 # Agentic Canvas
 
-Agentic Canvas is a local-first visual canvas that an AI agent drives through a local MCP server. The first plugin embeds Excalidraw in a browser page, while a single local Node process serves the page, exposes MCP over Streamable HTTP, and syncs scene changes over WebSocket.
+Agentic Canvas is a local-first visual canvas that an AI agent drives through a local MCP server. It supports Excalidraw for freeform diagrams and JSON Canvas for portable semantic knowledge maps, while a single local Node process serves the browser app, exposes MCP over Streamable HTTP, and syncs scene changes over WebSocket.
 
 Published package: `@trohde/agentic-canvas`
 
@@ -24,17 +24,19 @@ npm run build
 
 ```bash
 npm start -- --canvas excalidraw
+npm start -- --canvas jsoncanvas
 ```
 
 For package usage after publishing:
 
 ```bash
 npx @trohde/agentic-canvas --canvas excalidraw
+npx @trohde/agentic-canvas --canvas jsoncanvas
 ```
 
 Flags:
 
-- `--canvas <name>`: canvas plugin, currently only `excalidraw`
+- `--canvas <name>`: canvas plugin, one of `excalidraw`, `jsoncanvas`
 - `--port <n>`: port, default `3333`
 - `--host <host>`: bind host, default `127.0.0.1`
 - `--workspace <dir>`: root for save/open/screenshot files, default current directory
@@ -76,37 +78,86 @@ active `.codex/config.toml`.
 
 Example tool flow:
 
-1. Call `apply_canvas_patch` to create several nodes in one atomic change.
-2. Call `connect_objects` to add bound arrows between the nodes.
-3. Call `auto_layout_objects` or `align_distribute_objects` to clean up spacing.
-4. Call `find_objects` to locate objects by type, label text, geometry, style, link, or metadata.
-5. Select an object in the browser and call `get_selected_objects`; the tool returns the selected normalized object.
-6. Call `select_objects` with an object id to select it from the MCP client.
-7. Call `screenshot`; the tool returns a PNG image.
-8. Call `save_canvas` with `{ "path": "demo" }`; the file is written as `demo.excalidraw` inside the workspace.
-9. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo" }`; the saved scene is restored.
+1. Call `get_canvas_state` to identify the active canvas type.
+2. Call `get_canvas_capabilities` to discover supported tool groups and preferred workflows.
+3. For `--canvas excalidraw`, call `apply_canvas_patch` to create several nodes in one atomic change.
+4. Call `connect_objects` to add bound arrows between the nodes.
+5. Call `auto_layout_objects` or `align_distribute_objects` to clean up spacing.
+6. Call `find_objects` to locate objects by type, label text, geometry, style, link, or metadata.
+7. Select an object in the browser and call `get_selected_objects`; the tool returns the selected normalized object.
+8. Call `select_objects` with an object id to select it from the MCP client.
+9. Call `screenshot`; the tool returns a PNG image.
+10. Call `save_canvas` with `{ "path": "demo" }`; the file is written as `demo.excalidraw` inside the workspace.
+11. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo" }`; the saved scene is restored.
 
-`save_canvas` and `open_canvas` append `.excalidraw` when no extension is provided and reject other extensions. `screenshot` appends `.png` for file writes and rejects other extensions.
+`save_canvas` and `open_canvas` append the active canvas extension when no
+extension is provided and reject other extensions. `screenshot` appends `.png` for
+file writes and rejects other extensions.
 
-## Codex Plugin
+For `--canvas jsoncanvas`, agents can use `add_text_card`, `add_file_card`,
+`add_link_card`, `create_group`, `connect_cards`, `find_cards`, `find_edges`,
+`auto_layout_cards`, and `apply_jsoncanvas_patch`. A typical JSON Canvas flow:
 
-This repository bundles a local Codex plugin under `plugins/agentic-canvas`, with
-a repo-local marketplace at `.agents/plugins/marketplace.json`.
+1. Call `add_text_card` for context, risks, decisions, and next steps.
+2. Call `connect_cards` with labels such as `causes`, `mitigates`, or `depends on`.
+3. Call `create_group` to frame related cards.
+4. Call `auto_layout_cards`.
+5. Call `save_canvas` with `{ "path": "architecture-review" }`; the file is written as `architecture-review.canvas`.
 
-From a checkout of this repository:
+The JSON Canvas plugin writes standards-compatible `.canvas` files without Agentic Canvas metadata. It does not fetch link previews, index Obsidian vaults, or render arbitrary embedded media in this version.
+
+## Agent Plugins
+
+This repository bundles one Agentic Canvas plugin payload under
+`plugins/agentic-canvas`, packaged for Codex, Claude Code, and GitHub Copilot.
+All three formats use the same bundled skill and the same `.mcp.json` endpoint for
+`http://127.0.0.1:3333/mcp`.
+
+Marketplace and manifest files:
+
+- Codex: `.agents/plugins/marketplace.json` and
+  `plugins/agentic-canvas/.codex-plugin/plugin.json`
+- Claude Code: `.claude-plugin/marketplace.json` and
+  `plugins/agentic-canvas/.claude-plugin/plugin.json`
+- GitHub Copilot CLI / VS Code Agent Plugins: `.github/plugin/marketplace.json`
+  and `plugins/agentic-canvas/plugin.json`
+- Compatibility: `plugins/agentic-canvas/.plugin/plugin.json`
+
+Install for Codex from a checkout of this repository:
 
 ```bash
 codex plugin marketplace add .
 codex plugin add agentic-canvas@agentic-canvas
 ```
 
-Start a new Codex thread after installing so the plugin skill and MCP tools are
+Install for GitHub Copilot CLI from a checkout or GitHub repository:
+
+```bash
+copilot plugin marketplace add .
+copilot plugin install agentic-canvas@agentic-canvas
+```
+
+Install for Claude Code from a checkout or GitHub repository:
+
+```bash
+claude plugin marketplace add .
+claude plugin install agentic-canvas@agentic-canvas
+```
+
+Start a new agent thread/session after installing so plugin skills and MCP tools are
 loaded. The plugin connects to `http://127.0.0.1:3333/mcp`, so start Agentic Canvas
-before using it:
+before using it. Select the canvas type when starting the server:
 
 ```bash
 npx @trohde/agentic-canvas@latest --canvas excalidraw --workspace <project-dir>
+npx @trohde/agentic-canvas@latest --canvas jsoncanvas --workspace <project-dir>
 ```
+
+The plugin is one marketplace entry for all Agentic Canvas canvas types. It does not
+encode the canvas type in `.mcp.json`; agents should call `get_canvas_state` and
+`get_canvas_capabilities` to select Excalidraw, JSON Canvas, or future
+canvas-specific workflows. For parallel canvases, run separate Agentic Canvas
+servers on different ports and configure additional MCP entries manually.
 
 ## Test And Build
 
@@ -150,6 +201,8 @@ npm run inspect:mcp
 9. Call `screenshot`; confirm a PNG is returned and, when `path` is provided, written in the workspace.
 10. Drag or edit a shape by hand in the browser, then call `list_objects`; confirm the listing reflects the human edit.
 
+For JSON Canvas, run `npm run build && npm start -- --canvas jsoncanvas --workspace <tmp-dir>`, then call `add_text_card`, `connect_cards`, `auto_layout_cards`, `save_canvas`, `clear_canvas`, `open_canvas`, and `screenshot`. Confirm cards and edges appear in the browser, drag a card, and verify `get_object` reflects the updated `x`/`y`.
+
 ## Release Checks
 
 This project follows Semantic Versioning. Version scripts update `package.json` and `package-lock.json` without committing or tagging:
@@ -176,7 +229,8 @@ src/server/              Express, MCP HTTP, WebSocket bridge, workspace safety
 src/mcp/                 MCP server registration and baseline tools
 src/core/                Plugin interface and normalized scene types
 src/plugins/excalidraw/  Excalidraw plugin, element builder, adapter, tools
-src/web/                 React + Excalidraw browser app
+src/plugins/jsoncanvas/  JSON Canvas model, adapter, validation, tools
+src/web/                 React browser app and canvas renderers
 src/shared/              Shared protocol and logger
 tests/                   Vitest unit and integration tests
 docs/                    Architecture notes, MCP development docs, Codex profiles
@@ -191,3 +245,4 @@ scripts/                 Release and package smoke scripts
 - Full-scene sync is used instead of diffs or CRDT collaboration.
 - Screenshot and selection tools require a connected browser.
 - The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, object search, atomic patches, layout cleanup, save/open, and screenshot.
+- The JSON Canvas tool surface is semantic-card focused: text/file/link cards, groups, edges, search, layout, atomic patches, save/open, and screenshot.

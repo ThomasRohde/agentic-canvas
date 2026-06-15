@@ -24,7 +24,7 @@ describe("CanvasController", () => {
 
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]?.version).toBe(1);
-    expect(snapshots[0]?.elements).toHaveLength(3);
+    expect((snapshots[0]?.native as { elements?: unknown[] }).elements).toHaveLength(3);
   });
 
   it("keeps scene versions monotonic when opening serialized scenes", () => {

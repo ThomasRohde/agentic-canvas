@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ExcalidrawElement } from "../src/core/scene.js";
 import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { CanvasController } from "../src/server/canvasController.js";
@@ -63,9 +64,9 @@ describe("connect_objects MCP tool", () => {
 
       expect(result.arrowIds).toHaveLength(2);
       const arrow = controller.getObject(result.arrowIds[0]);
-      expect(arrow?.raw.startBinding?.elementId).toBe(first.id);
-      expect(arrow?.raw.endBinding?.elementId).toBe(second.id);
-      expect(arrow?.style.strokeColor).toBe("red");
+      expect(rawElement(arrow)?.startBinding?.elementId).toBe(first.id);
+      expect(rawElement(arrow)?.endBinding?.elementId).toBe(second.id);
+      expect(arrow?.style?.strokeColor).toBe("red");
       const labels = controller
         .listObjects("text")
         .filter((object) => ["one", "two"].includes(object.text ?? ""));
@@ -163,4 +164,8 @@ function createServer(
     requestSelection: async () => ({ selectedIds: [] }),
     requestSetSelection: async (selectedIds) => ({ selectedIds }),
   });
+}
+
+function rawElement(object: { raw: unknown } | undefined): ExcalidrawElement | undefined {
+  return object?.raw as ExcalidrawElement | undefined;
 }

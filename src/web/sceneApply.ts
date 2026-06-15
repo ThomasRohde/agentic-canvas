@@ -8,7 +8,7 @@ export interface ApplyRemoteSceneOptions {
   api: RemoteSceneApi;
   message: SceneSetMessage;
   captureUpdate: unknown;
-  restoreElements(elements: SceneSetMessage["elements"]): readonly unknown[];
+  restoreElements(elements: readonly unknown[]): readonly unknown[];
   rememberAppliedScene(elements: readonly unknown[]): void;
   setAppliedVersion(version: number): void;
   setVisibleVersion(version: number): void;
@@ -34,27 +34,28 @@ export function applyRemoteSceneToCanvas({
   shouldRequestFullScene,
   onError,
 }: ApplyRemoteSceneOptions): ApplyRemoteSceneResult {
+  const payload = excalidrawPayload(message.scene);
   const applyElements = (elements: readonly unknown[]) => {
     rememberAppliedScene(elements);
     setAppliedVersion(message.version);
     api.updateScene({
       elements,
       appState: message.appState,
-      files: message.files ?? {},
+      files: payload.files,
       captureUpdate,
     });
     setVisibleVersion(message.version);
   };
 
   try {
-    applyElements(restoreElements(message.elements));
+    applyElements(restoreElements(payload.elements));
     return { applied: "restored", requestedFullScene: false };
   } catch (error) {
     onError?.(error, "restore");
   }
 
   try {
-    applyElements(message.elements);
+    applyElements(payload.elements);
     const requestedFullScene = requestFullSceneOnce(message.version, {
       requestFullScene,
       shouldRequestFullScene,
@@ -71,6 +72,26 @@ export function applyRemoteSceneToCanvas({
       shouldRequestFullScene,
     }),
   };
+}
+
+function excalidrawPayload(scene: unknown): {
+  elements: readonly unknown[];
+  files: Record<string, unknown>;
+} {
+  if (
+    typeof scene === "object" &&
+    scene !== null &&
+    "elements" in scene &&
+    Array.isArray((scene as { elements?: unknown }).elements)
+  ) {
+    const payload = scene as { elements: readonly unknown[]; files?: Record<string, unknown> };
+    return {
+      elements: payload.elements,
+      files: payload.files ?? {},
+    };
+  }
+
+  return { elements: [], files: {} };
 }
 
 function requestFullSceneOnce(

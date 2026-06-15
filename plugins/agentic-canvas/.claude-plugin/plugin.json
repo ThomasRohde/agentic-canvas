@@ -1,0 +1,10 @@
+{
+  "name": "agentic-canvas",
+  "version": "0.1.0",
+  "description": "Use a local Agentic Canvas MCP server from Claude Code.",
+  "author": {
+    "name": "Thomas Rohde",
+    "email": "rohde.thomas@gmail.com",
+    "url": "https://github.com/ThomasRohde"
+  }
+}

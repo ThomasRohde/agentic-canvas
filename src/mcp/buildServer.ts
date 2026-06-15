@@ -4,7 +4,7 @@ import type { CanvasController } from "../server/canvasController.js";
 import type { Workspace } from "../server/workspace.js";
 import { MCP_SERVER_NAME, readPackageInfo } from "../shared/packageInfo.js";
 import type { ExportResult, SelectionResult, SelectionSetResult } from "./baselineTools.js";
-import { registerBaselineTools } from "./baselineTools.js";
+import { registerBaselineTools, registerShapeObjectTools } from "./baselineTools.js";
 import { MCP_INSTRUCTIONS } from "./instructions.js";
 
 export interface BuildMcpServerOptions {
@@ -31,6 +31,7 @@ export function buildMcpServer(options: BuildMcpServerOptions): McpServer {
   );
 
   registerBaselineTools(server, {
+    plugin: options.plugin,
     controller: options.controller,
     workspace: options.workspace,
     clientsConnected: options.clientsConnected,
@@ -38,6 +39,18 @@ export function buildMcpServer(options: BuildMcpServerOptions): McpServer {
     requestSelection: options.requestSelection,
     requestSetSelection: options.requestSetSelection,
   });
+
+  if (options.plugin.createObject && options.plugin.updateObject) {
+    registerShapeObjectTools(server, {
+      plugin: options.plugin,
+      controller: options.controller,
+      workspace: options.workspace,
+      clientsConnected: options.clientsConnected,
+      requestExport: options.requestExport,
+      requestSelection: options.requestSelection,
+      requestSetSelection: options.requestSetSelection,
+    });
+  }
 
   options.plugin.registerTools(server, {
     controller: options.controller,

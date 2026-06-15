@@ -26,6 +26,17 @@ export function createApp(options: CreateAppOptions): express.Express {
     });
   });
 
+  app.get("/canvas-info", (req, res) => {
+    const host = req.get("host") ?? "127.0.0.1";
+    const protocol = req.protocol;
+    const wsProtocol = protocol === "https" ? "wss" : "ws";
+    res.json({
+      canvas: options.plugin.name,
+      mcpUrl: `${protocol}://${host}/mcp`,
+      wsUrl: `${wsProtocol}://${host}/ws`,
+    });
+  });
+
   mountMcpHttp(app, () => buildMcpServer(options), options.allowedHosts);
 
   app.use(express.static(options.webDistDir));

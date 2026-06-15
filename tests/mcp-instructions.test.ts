@@ -37,7 +37,7 @@ describe("MCP server instructions", () => {
     const { client, close } = await connectInMemory(server);
 
     try {
-      expect(client.getInstructions()).toContain("apply_canvas_patch");
+      expect(client.getInstructions()).toContain("get_canvas_capabilities");
       expect(client.getInstructions()).toContain("clear_canvas");
     } finally {
       await close();

@@ -1,7 +1,7 @@
 {
   "name": "agentic-canvas",
-  "version": "0.1.0",
-  "description": "Use a local Agentic Canvas server from Codex.",
+  "version": "0.1.0+codex.20260615082432",
+  "description": "Use a local Agentic Canvas MCP server from Codex.",
   "author": {
     "name": "Thomas Rohde",
     "url": "https://github.com/ThomasRohde"
@@ -9,20 +9,28 @@
   "homepage": "https://github.com/ThomasRohde/agentic-canvas",
   "repository": "https://github.com/ThomasRohde/agentic-canvas",
   "license": "MIT",
-  "keywords": ["mcp", "canvas", "excalidraw", "diagramming", "agentic-canvas"],
+  "keywords": [
+    "mcp",
+    "canvas",
+    "excalidraw",
+    "jsoncanvas",
+    "diagramming",
+    "knowledge-map",
+    "agentic-canvas"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Agentic Canvas",
-    "shortDescription": "Draw and edit Excalidraw canvases through a local MCP server.",
-    "longDescription": "Agentic Canvas connects Codex to a local browser-based Excalidraw canvas over MCP. Use it to create diagrams, inspect objects, apply atomic canvas patches, arrange shapes, save files, and export screenshots.",
+    "shortDescription": "Create and edit local visual canvases through MCP.",
+    "longDescription": "Agentic Canvas connects Codex to a local browser-based canvas over MCP. Use it to create freeform Excalidraw diagrams or JSON Canvas knowledge maps, inspect objects, apply atomic edits, arrange content, save files, and export screenshots.",
     "developerName": "Thomas Rohde",
     "category": "Productivity",
     "capabilities": ["Interactive", "Write"],
     "websiteURL": "https://github.com/ThomasRohde/agentic-canvas",
     "defaultPrompt": [
       "Create an Agentic Canvas diagram.",
-      "Update the current canvas safely.",
-      "Save and screenshot my canvas."
+      "Map this project on a canvas.",
+      "Update and save my canvas."
     ],
     "brandColor": "#2563EB"
   },

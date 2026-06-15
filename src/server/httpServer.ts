@@ -3,7 +3,7 @@ import { type Server, createServer } from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createExcalidrawPlugin } from "../plugins/excalidraw/index.js";
+import { createCanvasPlugin } from "../plugins/registry.js";
 import { createApp } from "./app.js";
 import { CanvasController } from "./canvasController.js";
 import { Workspace } from "./workspace.js";
@@ -13,7 +13,7 @@ export interface StartServerOptions {
   host: string;
   port: number;
   workspace: string;
-  canvas: "excalidraw";
+  canvas: string;
 }
 
 export interface RunningServer {
@@ -32,7 +32,7 @@ export async function startHttpServer(options: StartServerOptions): Promise<Runn
   const workspace = new Workspace(options.workspace);
   await workspace.ensure();
 
-  const plugin = createExcalidrawPlugin();
+  const plugin = createCanvasPlugin(options.canvas);
   const controller = new CanvasController(plugin);
   const bridge = new WsBridge(controller);
   controller.setChangeListener((snapshot, origin) => bridge.broadcastScene(snapshot, origin));

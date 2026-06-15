@@ -1,0 +1,32 @@
+{
+  "name": "agentic-canvas",
+  "owner": {
+    "name": "Thomas Rohde",
+    "email": "rohde.thomas@gmail.com",
+    "url": "https://github.com/ThomasRohde"
+  },
+  "metadata": {
+    "description": "Agentic Canvas plugins for local visual canvas workflows.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "agentic-canvas",
+      "description": "Create and edit local Excalidraw diagrams and JSON Canvas knowledge maps through MCP.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Thomas Rohde",
+        "email": "rohde.thomas@gmail.com",
+        "url": "https://github.com/ThomasRohde"
+      },
+      "homepage": "https://github.com/ThomasRohde/agentic-canvas",
+      "repository": "https://github.com/ThomasRohde/agentic-canvas",
+      "license": "MIT",
+      "keywords": ["mcp", "canvas", "excalidraw", "jsoncanvas", "diagramming", "knowledge-map"],
+      "category": "productivity",
+      "source": "./plugins/agentic-canvas",
+      "skills": "skills/",
+      "mcpServers": ".mcp.json"
+    }
+  ]
+}

@@ -1,4 +1,3 @@
-import type { AppState, BinaryFiles, ExcalidrawElement } from "../core/scene.js";
 import type {
   BrowserToServerMessage,
   ExportRequestMessage,
@@ -70,13 +69,8 @@ export class CanvasWsClient {
     this.socket?.close();
   }
 
-  sendSceneChanged(
-    baseVersion: number,
-    elements: ExcalidrawElement[],
-    appState: Partial<AppState>,
-    files: BinaryFiles,
-  ): void {
-    this.send({ type: "scene:changed", baseVersion, elements, appState, files });
+  sendSceneChanged(baseVersion: number, canvas: string, scene: unknown, appState?: unknown): void {
+    this.send({ type: "scene:changed", baseVersion, canvas, scene, appState });
   }
 
   sendExportResult(id: string, mimeType: string, base64: string): void {

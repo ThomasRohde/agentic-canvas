@@ -28,6 +28,34 @@ body {
   min-height: 0;
 }
 
+.canvas-loading,
+.canvas-error {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #334155;
+  background: #f8fafc;
+  font-size: 14px;
+}
+
+.canvas-error {
+  color: #991b1b;
+}
+
+.jsoncanvas-surface {
+  background: #f8fafc;
+}
+
+.jsoncanvas-surface .react-flow__node {
+  box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.jsoncanvas-surface .react-flow__edge-textbg {
+  fill: #f8fafc;
+}
+
 .canvas-shell .sidebar-trigger__label-element[title="Library"] {
   display: none;
 }

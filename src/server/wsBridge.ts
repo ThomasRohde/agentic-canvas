@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
-import type { ExcalidrawElement } from "../core/scene.js";
 import {
   type ExportRequestMessage,
   type SelectionRequestMessage,
@@ -217,18 +216,20 @@ export class WsBridge {
     }
 
     if (message.type === "scene:changed") {
-      if (message.baseVersion < this.controller.currentVersion()) {
+      if (
+        message.canvas !== this.controller.canvasName ||
+        message.baseVersion < this.controller.currentVersion()
+      ) {
         this.sendScene(socket, this.controller.getSnapshot());
         return;
       }
 
-      this.controller.replaceFromBrowser(
-        message.elements as ExcalidrawElement[],
-        message.appState,
-        message.files,
-        socket,
-      );
-      this.markClientSynced(socket, this.controller.currentVersion());
+      try {
+        this.controller.replaceFromBrowser(message.scene, message.appState, socket);
+        this.markClientSynced(socket, this.controller.currentVersion());
+      } catch {
+        this.sendScene(socket, this.controller.getSnapshot());
+      }
       return;
     }
 
@@ -288,10 +289,10 @@ export class WsBridge {
     socket.send(
       JSON.stringify({
         type: "scene:set",
+        canvas: snapshot.canvas,
         version: snapshot.version,
-        elements: snapshot.elements,
+        scene: snapshot.native,
         appState: snapshot.appState,
-        files: snapshot.files,
       } satisfies ServerToBrowserMessage),
     );
     this.markClientSynced(socket, snapshot.version);

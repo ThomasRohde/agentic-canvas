@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ExcalidrawElement } from "../src/core/scene.js";
 import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { CanvasController } from "../src/server/canvasController.js";
@@ -62,9 +63,9 @@ describe("Excalidraw-specific MCP tools", () => {
       );
 
       const arrowObject = controller.getObject(arrow.id);
-      expect(arrowObject?.raw.startBinding?.elementId).toBe(rectangle.id);
-      expect(arrowObject?.raw.endBinding?.elementId).toBe(ellipse.id);
-      expect(controller.getObject(rectangle.id)?.raw.boundElements).toContainEqual({
+      expect(rawElement(arrowObject)?.startBinding?.elementId).toBe(rectangle.id);
+      expect(rawElement(arrowObject)?.endBinding?.elementId).toBe(ellipse.id);
+      expect(rawElement(controller.getObject(rectangle.id))?.boundElements).toContainEqual({
         id: arrow.id,
         type: "arrow",
       });
@@ -74,12 +75,12 @@ describe("Excalidraw-specific MCP tools", () => {
       expect(arrowLabelSummary).toBeDefined();
       const arrowLabel = controller.getObject(arrowLabelSummary?.id ?? "");
       expect(arrowLabel?.containerId).toBe(arrow.id);
-      expect(arrowObject?.raw.boundElements).toContainEqual({
+      expect(rawElement(arrowObject)?.boundElements).toContainEqual({
         id: arrowLabel?.id,
         type: "text",
       });
-      expect(arrowLabel?.raw.textAlign).toBe("center");
-      expect(arrowLabel?.raw.verticalAlign).toBe("middle");
+      expect(rawElement(arrowLabel)?.textAlign).toBe("center");
+      expect(rawElement(arrowLabel)?.verticalAlign).toBe("middle");
 
       const frame = jsonContent<{ id: string; childIds: string[] }>(
         await client.callTool({
@@ -94,7 +95,7 @@ describe("Excalidraw-specific MCP tools", () => {
         }),
       );
       expect(frame.childIds).toEqual([rectangle.id, ellipse.id]);
-      expect(controller.getObject(rectangle.id)?.raw.frameId).toBe(frame.id);
+      expect(rawElement(controller.getObject(rectangle.id))?.frameId).toBe(frame.id);
 
       const group = jsonContent<{ groupId: string; ids: string[] }>(
         await client.callTool({
@@ -167,8 +168,8 @@ describe("Excalidraw-specific MCP tools", () => {
       expect(Object.keys(result.nodeIds)).toEqual(["start", "validate", "success", "failure"]);
       expect(result.arrowIds).toHaveLength(3);
       const arrow = controller.getObject(result.arrowIds[0]);
-      expect(arrow?.raw.startBinding?.elementId).toBe(result.nodeIds.start);
-      expect(arrow?.raw.endBinding?.elementId).toBe(result.nodeIds.validate);
+      expect(rawElement(arrow)?.startBinding?.elementId).toBe(result.nodeIds.start);
+      expect(rawElement(arrow)?.endBinding?.elementId).toBe(result.nodeIds.validate);
       const edgeLabels = controller
         .listObjects("text")
         .filter((object) => ["parse", "valid", "invalid"].includes(object.text ?? ""));
@@ -177,7 +178,7 @@ describe("Excalidraw-specific MCP tools", () => {
         const labelObject = controller.getObject(label.id);
         expect(result.arrowIds).toContain(labelObject?.containerId);
         const connector = controller.getObject(labelObject?.containerId ?? "");
-        expect(connector?.raw.boundElements).toContainEqual({ id: label.id, type: "text" });
+        expect(rawElement(connector)?.boundElements).toContainEqual({ id: label.id, type: "text" });
       }
     } finally {
       await close();
@@ -334,3 +335,7 @@ describe("Excalidraw-specific MCP tools", () => {
     }
   });
 });
+
+function rawElement(object: { raw: unknown } | undefined): ExcalidrawElement | undefined {
+  return object?.raw as ExcalidrawElement | undefined;
+}

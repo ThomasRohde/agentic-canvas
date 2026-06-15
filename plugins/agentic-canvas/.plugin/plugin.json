@@ -1,0 +1,25 @@
+{
+  "name": "agentic-canvas",
+  "version": "0.1.0",
+  "description": "Use a local Agentic Canvas MCP server from agent clients.",
+  "author": {
+    "name": "Thomas Rohde",
+    "email": "rohde.thomas@gmail.com",
+    "url": "https://github.com/ThomasRohde"
+  },
+  "homepage": "https://github.com/ThomasRohde/agentic-canvas",
+  "repository": "https://github.com/ThomasRohde/agentic-canvas",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "canvas",
+    "excalidraw",
+    "jsoncanvas",
+    "diagramming",
+    "knowledge-map",
+    "agentic-canvas"
+  ],
+  "category": "productivity",
+  "skills": "skills/",
+  "mcpServers": ".mcp.json"
+}

@@ -10,25 +10,30 @@ Each plugin implements `CanvasPlugin`:
 ```ts
 export interface CanvasPlugin {
   readonly name: string;
+  readonly fileExtension: string;
   createInitialScene(): Scene;
+  getCapabilities?(): CanvasPluginCapabilities;
   getMetadata(scene: Scene): CanvasMetadata;
   listObjects(scene: Scene, type?: CanvasObjectType): CanvasObjectSummary[];
-  getObject(scene: Scene, id: string): CanvasObject | undefined;
-  createObject(scene: Scene, spec: CreateObjectSpec): CanvasObject;
-  updateObject(scene: Scene, id: string, patch: UpdateObjectPatch): CanvasObject | undefined;
+  getObject(scene: Scene, id: string): CanvasObjectDetail | undefined;
+  createObject?(scene: Scene, spec: CreateObjectSpec): CanvasObject;
+  updateObject?(scene: Scene, id: string, patch: UpdateObjectPatch): CanvasObject | undefined;
   deleteObjects(scene: Scene, ids: string[]): string[];
   clear(scene: Scene): void;
-  serialize(scene: Scene): SerializedScene;
-  deserialize(raw: string): Scene;
+  serialize(scene: Scene): unknown;
+  deserialize(raw: string, options?: { repair?: boolean }): Scene;
   registerTools(server: McpServer, context: PluginToolContext): void;
 }
 ```
 
 Responsibilities:
 
-- Own the native element format inside `Scene.elements`.
-- Implement all normalized object operations used by baseline MCP tools.
+- Own the native scene format inside `Scene.native`.
+- Implement normalized object inspection used by baseline MCP tools.
+- Implement generic object creation and updates only when the canvas supports the
+  shared shape-object contract.
 - Preserve enough raw native data for browser rendering and serialization.
+- Advertise plugin-specific tool workflows through `getCapabilities`.
 - Register only plugin-specific MCP tools in `registerTools`.
 
 `CanvasController` owns versioning and notifications. Plugin methods should mutate
@@ -45,6 +50,8 @@ export interface PluginToolContext {
     updateObject(id: string, patch: UpdateObjectPatch): CanvasObject | undefined;
     getObject(id: string): CanvasObject | undefined;
     listObjects(type?: CanvasObjectType): CanvasObjectSummary[];
+    getScene(): Scene;
+    currentVersion(): number;
     mutateScene<T>(mutator: (scene: Scene) => T): T;
     transaction<T>(fn: () => T): T;
   };
@@ -71,19 +78,18 @@ fall back to the current browser selection. Return its error through the normal
 
 ```ts
 export interface Scene {
-  elements: ExcalidrawElement[];
-  appState: AppState;
-  files: BinaryFiles;
+  native: unknown;
+  appState: Record<string, unknown>;
   version: number;
 }
 ```
 
-For the current Excalidraw plugin, `elements` are Excalidraw elements. A future
-plugin can use the same top-level shape with its own element payload, but should keep
-the data plain and serializable so MCP tools, WebSocket sync, save/open, and tests
-can inspect it.
+For Excalidraw, `native` contains Excalidraw elements and files. For JSON Canvas,
+`native` is the `.canvas` document. Plugin native data should stay plain and
+serializable so MCP tools, WebSocket sync, save/open, and tests can inspect it.
 
-`SerializedScene` is what `save_canvas` writes and `open_canvas` reads:
+Each plugin owns the serialized document that `save_canvas` writes and
+`open_canvas` reads. Excalidraw writes the Agentic Canvas Excalidraw envelope:
 
 ```ts
 export interface SerializedScene {
@@ -96,9 +102,9 @@ export interface SerializedScene {
 }
 ```
 
-A future plugin should use a plugin-specific `type` string and maintain a stable
-version number for its file format. `deserialize` should validate enough structure to
-reject unusable files with clear errors.
+JSON Canvas writes standards-compatible `.canvas` documents without the Excalidraw
+envelope. New plugins should maintain a stable file format and validate enough
+structure to reject unusable files with clear errors.
 
 ## Normalized Objects
 
@@ -251,15 +257,12 @@ registerBaselineTools(server, baselineContext);
 plugin.registerTools(server, { controller, requestSelection });
 ```
 
-Baseline tools provided for every plugin:
+Universal baseline tools provided for every plugin:
 
 - `get_canvas_state`
+- `get_canvas_capabilities`
 - `list_objects`
 - `get_object`
-- `find_objects`
-- `create_object`
-- `apply_canvas_patch`
-- `update_object`
 - `delete_object`
 - `clear_canvas`
 - `save_canvas`
@@ -267,9 +270,17 @@ Baseline tools provided for every plugin:
 - `screenshot`
 - `get_selected_objects`
 - `select_objects`
-- `set_canvas_background`
 - `undo`
 - `redo`
+
+Generic shape-object tools are registered only when the active plugin implements
+generic object creation and updates:
+
+- `find_objects`
+- `create_object`
+- `apply_canvas_patch`
+- `update_object`
+- `set_canvas_background`
 
 `get_canvas_state` returns scene metadata plus server package metadata. The scene
 counter remains `version`; the npm package version is returned separately as
@@ -286,14 +297,19 @@ counter remains `version`; the npm package version is returned separately as
 }
 ```
 
+`get_canvas_capabilities` returns the active canvas name, file extension, universal
+baseline tools, generic shape tools when available, plugin-specific tools,
+destructive tools, preferred workflows, and short usage guidance. Clients should use
+it after `get_canvas_state` instead of assuming one canvas engine.
+
 `delete_object` accepts `{ ids: string[] }` and returns `{ deleted, missingIds }`.
 `missingIds` reports requested ids that did not exist before deletion; deleting a
 container may still include bound labels in `deleted`.
 
-`save_canvas` and `open_canvas` append `.excalidraw` when no extension is supplied
-and reject other extensions. `screenshot` appends `.png` for file writes and rejects
-other extensions. All file paths are still resolved through the configured
-workspace.
+`save_canvas` and `open_canvas` append the active plugin's file extension when no
+extension is supplied and reject other extensions. `screenshot` appends `.png` for
+file writes and rejects other extensions. All file paths are still resolved through
+the configured workspace.
 
 `get_selected_objects` has no input arguments. It asks the connected browser for the
 current UI selection, resolves those ids through `CanvasController`, and returns JSON
@@ -333,6 +349,6 @@ The current selection path is static:
   `CanvasController`.
 - `src/mcp/buildServer.ts` receives the active plugin and registers its tools.
 
-Adding a second plugin requires updating those static selection points and tests. Do
-not add dynamic imports, external package loading, remote registries, or marketplace
-behavior as part of normal plugin authoring.
+Adding a plugin requires updating those static selection points and tests. Do not
+add dynamic imports, external package loading, remote registries, or runtime
+marketplace behavior as part of normal plugin authoring.

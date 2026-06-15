@@ -1,0 +1,42 @@
+{
+  "nodes": [
+    {
+      "id": "card_context",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 360,
+      "height": 180,
+      "text": "# Context\nA portable knowledge map."
+    },
+    {
+      "id": "file_plan",
+      "type": "file",
+      "x": 420,
+      "y": 0,
+      "width": 360,
+      "height": 120,
+      "file": "docs/project-briefs/PLAN.md",
+      "subpath": "# Context"
+    },
+    {
+      "id": "link_spec",
+      "type": "link",
+      "x": 840,
+      "y": 0,
+      "width": 360,
+      "height": 120,
+      "url": "https://jsoncanvas.org/spec/1.0/"
+    },
+    {
+      "id": "group_sources",
+      "type": "group",
+      "x": -40,
+      "y": -40,
+      "width": 1280,
+      "height": 260,
+      "label": "Sources"
+    }
+  ],
+  "edges": []
+}

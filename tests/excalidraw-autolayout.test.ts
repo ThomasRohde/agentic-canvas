@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ExcalidrawElement } from "../src/core/scene.js";
 import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { planGridLayout } from "../src/plugins/excalidraw/layout.js";
@@ -73,7 +74,9 @@ describe("auto_layout_objects MCP tool", () => {
       end: { elementId: second.id },
     });
     controller.mutateScene((scene) => {
-      const lockedElement = scene.elements.find((element) => element.id === locked.id);
+      const lockedElement = (scene.native as { elements: ExcalidrawElement[] }).elements.find(
+        (element) => element.id === locked.id,
+      );
       if (!lockedElement) {
         throw new Error("locked element missing");
       }
@@ -105,8 +108,8 @@ describe("auto_layout_objects MCP tool", () => {
       expect(controller.getObject(locked.id)?.x).toBe(200);
       expect(controller.getObject(second.id)?.y).toBe(120);
       const routedArrow = controller.getObject(arrow.id);
-      expect(routedArrow?.raw.startBinding?.elementId).toBe(first.id);
-      expect(routedArrow?.raw.endBinding?.elementId).toBe(second.id);
+      expect(rawElement(routedArrow)?.startBinding?.elementId).toBe(first.id);
+      expect(rawElement(routedArrow)?.endBinding?.elementId).toBe(second.id);
     } finally {
       await close();
     }
@@ -155,4 +158,8 @@ function createServer(
     requestSelection: async () => ({ selectedIds: [] }),
     requestSetSelection: async (selectedIds) => ({ selectedIds }),
   });
+}
+
+function rawElement(object: { raw: unknown } | undefined): ExcalidrawElement | undefined {
+  return object?.raw as ExcalidrawElement | undefined;
 }

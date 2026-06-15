@@ -1,4 +1,4 @@
-export type CanvasObjectType =
+export type ShapeObjectType =
   | "rectangle"
   | "ellipse"
   | "diamond"
@@ -6,6 +6,8 @@ export type CanvasObjectType =
   | "arrow"
   | "text"
   | "frame";
+
+export type CanvasObjectType = string;
 
 export type FillStyle = "hachure" | "cross-hatch" | "solid";
 export type StrokeStyle = "solid" | "dashed" | "dotted";
@@ -37,7 +39,7 @@ export interface PointEndpoint {
 export type ArrowEndpoint = ElementEndpoint | PointEndpoint;
 
 export interface CreateObjectSpec {
-  type: CanvasObjectType;
+  type: ShapeObjectType;
   x: number;
   y: number;
   width?: number;
@@ -56,14 +58,32 @@ export type UpdateObjectPatch = Partial<Omit<CreateObjectSpec, "type">>;
 export interface CanvasObjectSummary {
   id: string;
   type: CanvasObjectType;
+  pluginType?: string;
+  kind?: "node" | "edge" | "group" | "port" | "shape" | "text";
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  text?: string;
+  label?: string;
+}
+
+export interface CanvasObjectDetail extends CanvasObjectSummary {
+  points?: [number, number][];
+  style?: CanvasStyle;
+  containerId?: string;
+  groupIds?: string[];
+  frameId?: string | null;
+  raw: unknown;
+  references?: Record<string, unknown>;
+}
+
+export interface CanvasObject extends CanvasObjectDetail {
+  type: ShapeObjectType;
   x: number;
   y: number;
   width: number;
   height: number;
-  text?: string;
-}
-
-export interface CanvasObject extends CanvasObjectSummary {
   points?: [number, number][];
   style: CanvasStyle;
   containerId?: string;
@@ -136,24 +156,36 @@ export interface AppState {
 
 export type BinaryFiles = Record<string, unknown>;
 
-export interface Scene {
+export interface ExcalidrawNative {
   elements: ExcalidrawElement[];
-  appState: AppState;
   files: BinaryFiles;
+}
+
+export interface Scene<TNative = unknown, TAppState = Record<string, unknown>> {
+  native: TNative;
+  appState: TAppState;
   version: number;
 }
+
+export type ExcalidrawScene = Scene<ExcalidrawNative, AppState>;
 
 export interface CanvasMetadata {
   canvas: string;
   version: number;
   objectCount: number;
-  viewBackgroundColor: string;
+  viewBackgroundColor?: string;
 }
 
-export interface SerializedScene {
+export interface SerializedScene<TData = unknown> {
+  type: string;
+  version: number;
+  source: "agentic-canvas";
+  data?: TData;
+}
+
+export interface SerializedExcalidrawScene extends SerializedScene {
   type: "excalidraw";
   version: 2;
-  source: "agentic-canvas";
   elements: ExcalidrawElement[];
   appState: AppState;
   files: BinaryFiles;
@@ -163,13 +195,10 @@ export function isElementEndpoint(endpoint: ArrowEndpoint): endpoint is ElementE
   return "elementId" in endpoint;
 }
 
-export function cloneScene(scene: Scene): Scene {
-  return {
-    elements: scene.elements.map(cloneElement),
-    appState: { ...scene.appState },
-    files: { ...scene.files },
-    version: scene.version,
-  };
+export function cloneScene<TNative, TAppState>(
+  scene: Scene<TNative, TAppState>,
+): Scene<TNative, TAppState> {
+  return structuredClone(scene);
 }
 
 export function cloneElement(element: ExcalidrawElement): ExcalidrawElement {

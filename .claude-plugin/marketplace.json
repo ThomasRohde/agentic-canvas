@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "agentic-canvas",
+  "version": "0.1.0",
+  "description": "Agentic Canvas plugins for local visual canvas workflows.",
+  "owner": {
+    "name": "Thomas Rohde",
+    "email": "rohde.thomas@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "agentic-canvas",
+      "description": "Create and edit local Excalidraw diagrams and JSON Canvas knowledge maps through MCP.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Thomas Rohde",
+        "email": "rohde.thomas@gmail.com",
+        "url": "https://github.com/ThomasRohde"
+      },
+      "source": "./plugins/agentic-canvas",
+      "category": "productivity"
+    }
+  ]
+}

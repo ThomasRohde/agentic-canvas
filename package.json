@@ -1,7 +1,7 @@
 {
   "name": "@trohde/agentic-canvas",
-  "version": "0.4.1",
-  "description": "Local-first Excalidraw canvas controlled by MCP tools.",
+  "version": "0.5.0",
+  "description": "Local-first visual canvas controlled by MCP tools.",
   "type": "module",
   "bin": {
     "agentic-canvas": "dist/cli/index.js"
@@ -71,6 +71,7 @@
     "@types/react-dom": "^19.0.3",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^6.0.2",
+    "@xyflow/react": "^12.11.0",
     "jsdom": "^25.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

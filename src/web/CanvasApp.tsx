@@ -191,7 +191,12 @@ export function CanvasApp() {
       }
 
       userEditPending.current = false;
-      clientRef.current?.sendSceneChanged(baseVersion, changedElements, safeAppState, changedFiles);
+      clientRef.current?.sendSceneChanged(
+        baseVersion,
+        "excalidraw",
+        { elements: changedElements, files: changedFiles },
+        safeAppState,
+      );
     }, 200);
   };
 

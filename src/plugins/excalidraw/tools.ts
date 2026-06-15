@@ -142,7 +142,9 @@ export function registerExcalidrawTools(server: McpServer, context: PluginToolCo
       },
     },
     async ({ x, y, text, containerId, style }) => {
-      const container = containerId ? context.controller.getObject(containerId) : undefined;
+      const container = containerId
+        ? (context.controller.getObject(containerId) as CanvasObject | undefined)
+        : undefined;
       if (containerId && !container) {
         return errorResult(`Object not found: ${containerId}`);
       }
@@ -426,7 +428,7 @@ function collectLayoutObjects(
 ): LayoutObject[] {
   const objects: LayoutObject[] = [];
   for (const id of ids) {
-    const object = context.controller.getObject(id);
+    const object = context.controller.getObject(id) as CanvasObject | undefined;
     if (!object) {
       throw new Error(`Object not found: ${id}`);
     }

@@ -1,5 +1,3 @@
-import type { AppState, BinaryFiles, ExcalidrawElement } from "../core/scene.js";
-
 export type BrowserToServerMessage =
   | HelloMessage
   | SceneChangedMessage
@@ -25,10 +23,10 @@ export interface HelloMessage {
 
 export interface SceneChangedMessage {
   type: "scene:changed";
+  canvas: string;
   baseVersion: number;
-  elements: ExcalidrawElement[];
-  appState?: Partial<AppState>;
-  files?: BinaryFiles;
+  scene: unknown;
+  appState?: unknown;
 }
 
 export interface ExportResultMessage {
@@ -70,10 +68,10 @@ export interface SelectionSetErrorMessage {
 
 export interface SceneSetMessage {
   type: "scene:set";
+  canvas: string;
   version: number;
-  elements: ExcalidrawElement[];
-  appState?: Partial<AppState>;
-  files?: BinaryFiles;
+  scene: unknown;
+  appState?: unknown;
 }
 
 export interface ExportRequestMessage {

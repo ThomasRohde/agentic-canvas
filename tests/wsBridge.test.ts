@@ -50,14 +50,15 @@ describe("WsBridge", () => {
     first.send(
       JSON.stringify({
         type: "scene:changed",
+        canvas: "excalidraw",
         baseVersion: controller.currentVersion(),
-        elements: [element],
+        scene: { elements: [element], files: {} },
         appState: { viewBackgroundColor: "#ffffff", collaborators: {} },
       }),
     );
 
     const secondMessage = await secondScene;
-    expect(secondMessage.elements).toHaveLength(1);
+    expect(sceneElements(secondMessage)).toHaveLength(1);
     expect(secondMessage.appState).toEqual({ viewBackgroundColor: "#ffffff" });
     await expect(readWithTimeout(first, 100)).rejects.toThrow(/timeout/);
 
@@ -79,8 +80,9 @@ describe("WsBridge", () => {
     socket.send(
       JSON.stringify({
         type: "scene:changed",
+        canvas: "excalidraw",
         baseVersion: 0,
-        elements: [],
+        scene: { elements: [], files: {} },
         appState: { viewBackgroundColor: "#ffffff" },
       }),
     );
@@ -88,7 +90,7 @@ describe("WsBridge", () => {
     const message = await resync;
     expect(controller.listObjects()).toHaveLength(1);
     expect(message.version).toBe(controller.currentVersion());
-    expect(message.elements).toHaveLength(1);
+    expect(sceneElements(message)).toHaveLength(1);
     socket.close();
   });
 
@@ -397,4 +399,9 @@ function readWithTimeout(socket: WebSocket, timeoutMs: number): Promise<unknown>
     };
     socket.on("message", handler);
   });
+}
+
+function sceneElements(message: Record<string, unknown>): unknown[] {
+  const scene = message.scene as { elements?: unknown[] } | undefined;
+  return scene?.elements ?? [];
 }

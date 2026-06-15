@@ -3,9 +3,10 @@ import type {
   CanvasObjectSummary,
   CanvasObjectType,
   ExcalidrawElement,
+  ShapeObjectType,
 } from "../../core/scene.js";
 
-const SUPPORTED_TYPES = new Set<CanvasObjectType>([
+const SUPPORTED_TYPES = new Set<ShapeObjectType>([
   "rectangle",
   "ellipse",
   "diamond",
@@ -16,9 +17,9 @@ const SUPPORTED_TYPES = new Set<CanvasObjectType>([
 ]);
 
 export function isSupportedElement(element: ExcalidrawElement): element is ExcalidrawElement & {
-  type: CanvasObjectType;
+  type: ShapeObjectType;
 } {
-  return SUPPORTED_TYPES.has(element.type as CanvasObjectType) && !element.isDeleted;
+  return SUPPORTED_TYPES.has(element.type as ShapeObjectType) && !element.isDeleted;
 }
 
 export function toCanvasObject(element: ExcalidrawElement): CanvasObject | undefined {

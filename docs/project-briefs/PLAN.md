@@ -1,664 +1,388 @@
-# PLAN.md — Agentic Canvas
+# PLAN.md — Add the `jsoncanvas` JSON Canvas plugin (plugin-neutral core + new backend)
 
-> Status: first-version blueprint for an autonomous implementation agent. Build the **smallest coherent version** that proves the full loop. Do not add anything in "Out of scope". Follow milestones in order; verify after each.
+> Source spec: `docs/project-briefs/agentic-canvas-jsoncanvas-plugin-spec.md`. This is the agent-ready implementation contract derived from it.
 
-## 1. Product outcome
+## Context
 
-Agentic Canvas is a **local-first** desktop-in-the-browser application that gives an AI agent and a human a shared visual drawing surface. A human runs one command (`npx agentic-canvas`), a browser canvas opens, and an MCP-capable agent connects to a local MCP server to draw, inspect, modify, save, load, and screenshot objects on that canvas — with every change visible live in the browser. The first canvas type is **Excalidraw**. It is built as a small plugin system (one plugin shipped: Excalidraw) so other canvas engines can be added later without redesign. Success, locally, means: the app starts, the browser shows the canvas, an MCP client creates/edits objects that appear in the browser, a human edit is reflected back to the agent's view of the scene, and `save`/`open`/`screenshot` work — all with passing automated tests and clean lint/typecheck.
+Agentic Canvas is a local-first Node process that serves a browser app, hosts an MCP server over Streamable HTTP (`/mcp`), and syncs scene state to the browser over WebSocket (`/ws`). Today it has exactly one canvas backend (Excalidraw), and the core is hard-coded to it: `Scene.elements: ExcalidrawElement[]`, `SerializedScene.type: "excalidraw"`, the WS protocol carries `elements/appState/files`, the CLI rejects any canvas but `excalidraw`, and `httpServer.ts` constructs the Excalidraw plugin directly.
 
-## 2. First-version scope
+We want a second, **portable, semantic** canvas: the open JSON Canvas format (`.canvas`) optimized for agent-readable knowledge maps (text/file/link cards, groups, labeled edges). It is Obsidian-compatible and complements (does not replace) Excalidraw. Because the core is Excalidraw-coupled, we must first make the core plugin-neutral, then add the JSON Canvas model, plugin, MCP tools, and a React Flow browser renderer.
+
+**Outcome when done:** `npx @trohde/agentic-canvas --canvas jsoncanvas` starts a working JSON Canvas; agents can create/connect/group/search/layout cards and save/open standards-compatible `.canvas` files; humans can drag/edit/connect cards in the browser and those edits round-trip to the server; Excalidraw behaves exactly as before; `npm run verify` passes.
+
+---
+
+## 1. Outcome
+
+Add `jsoncanvas` as a first-class canvas backend selectable via `--canvas jsoncanvas`. The core scene model, serialized scene, WebSocket protocol, CLI, and server wiring become plugin-neutral via a static plugin registry. JSON Canvas gets its own native model, `.canvas` serialization with validation/repair, a plugin implementing the shared `CanvasPlugin` interface, a set of JSON Canvas-specific MCP tools, and a React Flow (`@xyflow/react`) browser renderer with live sync, selection, and screenshot. Excalidraw remains unaffected (same tools, same files round-trip, all existing tests green).
+
+## 2. Scope
 
 ### In scope
-- A `npx agentic-canvas`-style CLI that boots a single local Node process and (by default) opens the browser.
-- A local HTTP server that: serves the built browser app, exposes an **MCP server over Streamable HTTP** at `/mcp`, and exposes a **WebSocket** at `/ws` for browser↔server scene sync.
-- A browser app (React + Vite) that embeds **Excalidraw** and stays in sync with the server.
-- A **server-authoritative scene model** (canonical Excalidraw element array held in Node) with bidirectional WS sync and echo-loop protection.
-- An internal **plugin interface** (`CanvasPlugin`) with exactly one implementation: Excalidraw.
-- **Baseline MCP tools** (shared contract, plugin-agnostic): `get_canvas_state`, `list_objects`, `get_object`, `create_object`, `update_object`, `delete_object`, `clear_canvas`, `save_canvas`, `open_canvas`, `screenshot`.
-- **Excalidraw-specific MCP tools:** `draw_rectangle`, `draw_ellipse`, `draw_diamond`, `draw_line`, `draw_arrow` (optionally bound between two elements), `add_text` (standalone or bound into a container as a label), `create_frame`, `group_objects`, and a higher-level `create_flowchart(nodes, edges)`.
-- File-based **save/open** of `.excalidraw` JSON inside a sandboxed workspace directory.
-- **Screenshot** to PNG (returned inline to the agent and optionally written to a file), produced by the connected browser.
-- Automated tests (Vitest) for the canvas core, the Excalidraw adapter/element builder, the baseline + Excalidraw MCP tools (via in-memory MCP transport), the WS sync hub, and workspace path safety. Lint (Biome), typecheck (`tsc`).
-- `README.md` and `AGENTS.md`.
+- Generalize core types: `Scene<TNative, TAppState>`, `SerializedScene<TData>`, neutral `CanvasObjectSummary`/`CanvasObjectDetail`, neutral `CanvasController`/`SceneSnapshot`, neutral WS protocol (`src/shared/protocol.ts`).
+- Add a static plugin registry; make CLI + `httpServer.ts` resolve the plugin from it; add `GET /canvas-info`.
+- Split MCP baseline tools into **universal** (registered for every plugin) and **Excalidraw-shape** (gated to plugins that opt in). Make `save_canvas`/`open_canvas` use a plugin-provided file extension.
+- New `src/plugins/jsoncanvas/` plugin: model, Zod schemas, format (serialize/deserialize + `.canvas`), validation/repair, adapter, deterministic layout, search, plugin factory, and MCP tools (`add_text_card`, `add_file_card`, `add_link_card`, `create_group`, `connect_cards`, `update_card`, `update_edge`, `find_cards`, `find_edges`, `auto_layout_cards`, `apply_jsoncanvas_patch`).
+- New browser renderer `src/web/canvases/jsoncanvas/` using `@xyflow/react`; a top-level web router that picks the renderer from `/canvas-info`; generalize `wsClient.ts` and extract shared sync/export helpers.
+- Add `@xyflow/react` to `devDependencies`.
+- Tests under `tests/jsoncanvas/` + fixtures under `tests/fixtures/jsoncanvas/`.
+- Update `README.md` and `AGENTS.md` (remove the "no second plugin" rule, document `--canvas jsoncanvas`).
 
-### Out of scope (do **not** build)
-- Authentication, accounts, payments, admin tooling, analytics/telemetry.
-- Cloud hosting/deployment pipelines, collaboration servers, multi-user persistence, real-time multi-client conflict resolution beyond simple last-write-wins.
-- A database (use files only). Background jobs, queues, microservices.
-- A second canvas plugin (e.g. tldraw), a plugin **marketplace**, remote plugin registry, or dynamic/remote plugin loading.
-- **stdio** MCP transport (HTTP only in v1 — see Future Work), and the old HTTP+SSE transport.
-- Internationalization, theming systems, a broad configuration framework, feature flags.
-- Full Excalidraw feature coverage (images/embeds, libraries, rich text, laser pointer, presentation mode, custom fonts). Prefer a small reliable subset.
+### Out of scope (do not do)
+- Obsidian vault indexing, backlinks, link/file fetching or reading, markdown rendering libraries, URL previews, image/video rendering, syntax highlighting, graph-layout dependencies (`elkjs`/`dagre`), CRDTs/multiplayer, cloud sync, stdio MCP transport, auth, DB, a marketplace, dynamic plugin loading.
+- Do **not** add Agentic Canvas metadata to the top-level `.canvas` file (runtime state stays in the in-memory wrapper only).
+- Do **not** change Excalidraw tool names, schemas, or behavior; do not redesign the Excalidraw renderer.
+- No speculative refactors beyond what plugin-neutrality requires.
 
-## 3. Recommended stack
+## 3. Repository evidence
 
-| Layer | Choice | Rationale | Alternatives rejected |
-|---|---|---|---|
-| Language | **TypeScript** | One language across CLI, server, and browser; types make the MCP/scene/WS contracts explicit. | JS (loses contract safety) |
-| Runtime | **Node.js ≥ 20** | LTS; required by MCP SDK; native ESM, `fetch`, `node:util parseArgs`, `crypto.randomUUID`. | Bun/Deno (less universal for `npx`) |
-| Web framework | **React 19 + Vite 5** | Excalidraw **is** a React component; Vite is the standard fast bundler/dev server. | Next.js (server framework overkill for a local single-page canvas) |
-| Server framework | **Express 4** + **`ws`** | Tiny, boring; MCP SDK has first-class Express Streamable-HTTP examples; `ws` for the sync socket. | Fastify (fine, less example coverage); raw `http` (more boilerplate) |
-| MCP | **`@modelcontextprotocol/sdk@^1.29.0`** | Official SDK; provides `McpServer`, `StreamableHTTPServerTransport`, `StdioServerTransport`, `InMemoryTransport`, `Client`. Pinned to v1.x for deterministic imports. | v2 split packages (newer; pin-and-note instead — see §3 note); custom JSON-RPC (reinventing) |
-| Canvas engine | **`@excalidraw/excalidraw@^0.18`** | The product mandates Excalidraw; ships `convertToExcalidrawElements`, `restore`/`restoreElements`, `exportToBlob`, `serializeAsJSON`. | tldraw (explicitly future) |
-| Package manager | **npm** | Ubiquitous; `npx` distribution is the product's entry point. | pnpm/yarn (extra prereq for end users) |
-| CLI parsing | **`node:util` `parseArgs`** (built-in) | Zero dependency; sufficient for a handful of flags. | commander/yargs (unnecessary deps) |
-| Browser launch | **`open`** (npm) | Tiny, cross-platform browser launcher; `--no-open` disables. | hand-rolled `start`/`xdg-open` (brittle) |
-| Validation | **Zod** | MCP SDK uses Zod for tool input schemas; reuse for scene/spec validation. | ajv/manual (more boilerplate) |
-| Testing | **Vitest** (+ **jsdom** for adapter tests) | Fast, TS-native, shares Vite config; `jsdom` lets the element-builder round-trip through Excalidraw's `restoreElements` in tests. | Jest (slower TS setup); Playwright required (kept optional) |
-| Lint/format | **Biome** | Single fast binary for lint **and** format, minimal config — lowest moving-part count. | ESLint + Prettier (more deps/config) |
-| Typecheck | **`tsc --noEmit`** | Canonical; no extra dependency (TypeScript already present). | — |
-| Build | **Vite** (web → `dist/web`) + **tsup** (server/CLI → `dist`) + **tsx** (dev runner) | Vite must bundle the React/Excalidraw app; tsup emits ESM Node output with a preserved shebang for the `bin`; tsx runs TS directly in dev. | tsc-only (can't bundle the web app; Node-ESM `.js`-extension friction) |
-| Storage | **Local files** (`.excalidraw` JSON via `fs`) | Local-first; the Excalidraw save format is plain JSON. | SQLite/DB (not needed) |
-| UI approach | **Single embedded Excalidraw canvas page** | Matches the product; no routing/design system needed. | Multi-page SPA (unnecessary) |
-| Packaging | **npm package with a `bin`**, prebuilt `dist/` shipped | Enables `npx agentic-canvas`; end users install only runtime deps. | Electron (heavier; browser is sufficient) |
+| Area | Evidence | Implication for an implementation agent |
+|---|---|---|
+| Tech stack | TypeScript ESM (`"type": "module"`), Node ≥20.19, npm (`package-lock.json`). Server bundled by `tsup` (`tsup.config.ts`), web by Vite (`vite.config.ts`) into `dist/web`. | Use ESM imports with `.js` suffixes; keep server code free of browser deps. |
+| Plugin interface | `src/core/plugin.ts` — `CanvasPlugin` (name, createInitialScene, getMetadata, listObjects, getObject, createObject, updateObject, deleteObjects, clear, serialize, deserialize, registerTools) + `PluginToolContext`. | Extend this interface minimally; jsoncanvas implements it. |
+| Core scene types (coupled) | `src/core/scene.ts` — `Scene { elements: ExcalidrawElement[]; appState; files; version }`, `SerializedScene { type: "excalidraw"; version: 2; ... }`, `CanvasObject { ...; raw: ExcalidrawElement }`, `CanvasObjectType` union, `cloneScene`/`cloneElement`. | These must be generalized in M0 without breaking Excalidraw. |
+| Controller | `src/server/canvasController.ts` — `scene: Scene`, `getSnapshot(): {version,elements,appState,files}`, `replaceFromBrowser(elements,appState,files,origin)`, uses `cloneScene`, transaction/undo/redo. | Make generic over `native`/`appState`; delegate clone generically. |
+| Baseline tools | `src/mcp/baselineTools.ts` — `registerBaselineTools`. Universal: get_canvas_state, list_objects, get_object, delete_object, clear_canvas, save_canvas, open_canvas, screenshot, get_selected_objects, select_objects, undo, redo. **Excalidraw-shape (coupled to `object.raw`/`object.style`/`CreateObjectSpec.type`):** create_object, update_object, find_objects, apply_canvas_patch, set_canvas_background. `.excalidraw`/`.png` hardcoded in `normalizeToolPath`. | Split universal vs shape; gate shape tools; parameterize file extension. |
+| MCP assembly | `src/mcp/buildServer.ts` — registers baseline then `plugin.registerTools`. | Add the shape-tools gate here; jsoncanvas tools come via `registerTools`. |
+| WS protocol | `src/shared/protocol.ts` — `scene:set`/`scene:changed` carry `elements/appState/files`; export/selection request-response. Imported by Node **and** web (`AGENTS.md`). | Generalize scene payload to `scene: unknown` + `canvas`; keep export/selection as-is. |
+| WS bridge | `src/server/wsBridge.ts` — `broadcastScene`, `sendScene` builds `scene:set`, handles `scene:changed` → `controller.replaceFromBrowser`. Tested in `tests/wsBridge.test.ts`. | Update `sendScene`/`scene:changed` to neutral payload; keep timeout/echo logic. |
+| Excalidraw plugin | `src/plugins/excalidraw/` — `index.ts` (factory + scene ops over `scene.elements`), `adapter.ts`, `format.ts`, `elements.ts`, `geometry.ts`, `layout.ts`, `flowchart.ts`, `textMetrics.ts`, `tools.ts`. | Mirror this layout for jsoncanvas (spec §8). Update `scene.elements`→`scene.native.elements`, `scene.files`→`scene.native.files`. |
+| CLI | `src/cli/index.ts` — `--canvas` default `excalidraw`, rejects others (line 36); passes `canvas: "excalidraw"` literal to `startHttpServer`. | Validate against registry keys; pass selected key through. |
+| Server wiring | `src/server/httpServer.ts` — `createExcalidrawPlugin()` direct (line 35); `StartServerOptions.canvas: "excalidraw"`. `src/server/app.ts` — `/healthz` returns `plugin.name`. | Resolve plugin from registry by key; add `/canvas-info`. |
+| Web app | `src/web/main.tsx` → `<CanvasApp/>` (Excalidraw only). `src/web/CanvasApp.tsx`, `wsClient.ts`, `sceneApply.ts`, `sceneSync.ts`, `selection.ts`, `exportImage.ts`. No router, no `/canvas-info`. | Add router; reuse `CanvasWsClient`; new jsoncanvas renderer. |
+| Tests | `tests/` (Vitest). `tests/helpers.ts` (`connectInMemory`, `jsonContent`, `textContent`). Patterns: `mcp-baseline.test.ts`, `mcp-apply-patch.test.ts`, `mcp-find-objects.test.ts`, `plugin-baseline.test.ts`, `wsBridge.test.ts`, `canvasController.test.ts`. No `tests/fixtures/` yet. | Add `tests/jsoncanvas/*` + `tests/fixtures/jsoncanvas/*` matching these patterns. |
+| Commands | `package.json` scripts: `verify` = `typecheck && lint && test`; `typecheck`=`tsc --noEmit`; `lint`=`biome check .`; `test`=`vitest run`; `build`=`build:web && build:server`. | Run `npm run verify` after each milestone; `npm run build` before manual run. |
+| Dependencies | `@xyflow/react` **absent**. `react`, `react-dom`, `@excalidraw/excalidraw` live in **devDependencies** (published package ships prebuilt `dist/web`). | Add `@xyflow/react` to **devDependencies**. |
+| Agent guidance | `AGENTS.md` — "Node server must NOT import `@excalidraw/excalidraw`"; "no second plugin"; references deleted `PLAN.md`; tools return `{ isError: true }` on failure; stdout clean. | Keep Node free of renderer libs (no `@xyflow/react` in `src/server`/`src/core`/`src/mcp`). Update the "no second plugin" rule. |
+| Lint/format | `biome.json` — 2-space indent, line width 100, recommended rules, organize imports. | Run `npm run format` before finishing. |
 
-**MCP SDK version note (important for the implementer):** Install **`@modelcontextprotocol/sdk@^1.29.0`** and use the v1 subpath imports in §6/§7. A newer **v2** exists where the SDK is split into `@modelcontextprotocol/server`, `@modelcontextprotocol/node` (`NodeStreamableHTTPServerTransport`), `@modelcontextprotocol/express` (`createMcpExpressApp`), and `@modelcontextprotocol/client`, and where `registerTool` requires `inputSchema: z.object({...})`. If you deliberately adopt v2, map: `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`; raw Zod shape → `z.object(shape)`; manual Express wiring → `createMcpExpressApp()`. **Default to v1.x** unless v1 fails to install.
+`Assumption`: `structuredClone` (Node ≥20) is acceptable for cloning generic scene `native`/`appState` (Excalidraw elements and JSON Canvas nodes/edges are plain JSON data). Verify Excalidraw round-trip tests still pass after switching `cloneScene`.
 
-## 4. Project structure
+## 4. Design decision
 
-```text
-agentic-canvas/
-  README.md
-  AGENTS.md
-  PLAN.md
-  package.json
-  tsconfig.json                # base + typecheck (jsx: react-jsx)
-  tsconfig.server.json         # tsup/tsc input for Node code (excludes src/web)
-  vite.config.ts               # builds src/web -> dist/web; root index.html
-  tsup.config.ts               # builds src/cli + server/mcp/core/plugins -> dist
-  biome.json
-  vitest.config.ts
-  .gitignore
-  index.html                   # Vite entry for the browser app
-  src/
-    cli/
-      index.ts                 # #!/usr/bin/env node — parse flags, start server, open browser
-    server/
-      httpServer.ts            # create http.Server, mount Express + ws upgrade
-      app.ts                   # Express app: static dist/web, /healthz, /mcp routes
-      mcpHttp.ts               # StreamableHTTPServerTransport wiring (single local session)
-      wsBridge.ts              # WebSocket sync hub: broadcast scene, request/await export
-      canvasController.ts      # holds active plugin + Scene + version; applies ops; emits sync
-      workspace.ts             # safe path resolution for save/open/screenshot
-    mcp/
-      buildServer.ts           # create McpServer, register baseline + plugin tools
-      baselineTools.ts         # registers the 10 baseline tools against CanvasController
-      schemas.ts               # Zod shapes for normalized object specs + tool inputs
-    core/
-      plugin.ts                # CanvasPlugin interface + in-process registry
-      scene.ts                 # Scene type, versioning, normalized CanvasObject types
-    plugins/
-      excalidraw/
-        index.ts               # CanvasPlugin impl (baseline ops over element array)
-        elements.ts            # buildElement(): element schema + defaults (NO @excalidraw import)
-        adapter.ts             # native element <-> normalized CanvasObject mapping
-        tools.ts               # Excalidraw-specific MCP tools (incl. create_flowchart)
-        flowchart.ts           # deterministic layout for create_flowchart
-        format.ts              # .excalidraw serialize/deserialize (plain JSON, no @excalidraw import)
-    web/
-      main.tsx                 # React root; mounts CanvasApp
-      CanvasApp.tsx            # <Excalidraw>, wires WS + export round-trip
-      wsClient.ts              # browser WS client (apply scene:set, send scene:changed)
-      exportImage.ts           # exportToBlob -> base64 PNG on demand
-    shared/
-      protocol.ts              # WS message types + Scene wire types (imported by server AND web)
-      logger.ts                # tiny leveled logger (stderr)
-  tests/
-    elements.test.ts           # buildElement round-trips through restoreElements (jsdom)
-    adapter.test.ts            # native <-> normalized mapping
-    plugin-baseline.test.ts    # plugin baseline ops (create/update/delete/clear/list/get)
-    mcp-baseline.test.ts       # MCP Client over InMemoryTransport calls each baseline tool
-    mcp-excalidraw.test.ts     # Excalidraw-specific tools incl. create_flowchart
-    wsBridge.test.ts           # broadcast + export request/response + loop guard
-    workspace.test.ts          # save/open round trip + path-traversal rejection
-  docs/
-    architecture.md            # short diagram + data-flow notes (optional, generated last)
-```
+**Make the core plugin-neutral by parameterizing the scene wrapper and isolating Excalidraw-shaped concerns, then add JSON Canvas as a parallel plugin + renderer.** Concretely:
 
-| Path | Purpose |
-|---|---|
-| `src/cli/index.ts` | The `bin` entry. Parses flags with `parseArgs`, starts the HTTP server, optionally opens the browser, prints the canvas + MCP URLs. |
-| `src/server/canvasController.ts` | Single source of truth: holds the active plugin and current `Scene` (+ integer `version`), applies all mutations (from tools or WS), and notifies the WS bridge to broadcast. |
-| `src/server/wsBridge.ts` | Manages browser WebSocket clients; broadcasts `scene:set`; performs `screenshot` as a correlated `export:request`/`export:result` round-trip with timeout. |
-| `src/server/workspace.ts` | Resolves user-supplied paths against the workspace root and **rejects traversal outside it**; the only place that touches `fs` for save/open/screenshot. |
-| `src/plugins/excalidraw/elements.ts` | Builds Excalidraw element JSON with all required fields/defaults. **Must not import `@excalidraw/excalidraw`** (keeps Node free of DOM-bound code). |
-| `src/plugins/excalidraw/adapter.ts` | Translates between Excalidraw native elements and the plugin-agnostic `CanvasObject` used by baseline tools. |
-| `src/shared/protocol.ts` | The WS message + Scene wire contract shared by Node and the browser bundle — the one file both build targets import. |
-| `src/web/CanvasApp.tsx` | Mounts Excalidraw, applies server scenes via `updateScene`, echoes user edits, and answers export requests. The **only** place Excalidraw's runtime API is used. |
-| `AGENTS.md` | Concise build/run/test guidance for this and future implementation agents (content in §8). |
+- **Generic scene wrapper.** `Scene<TNative = unknown, TAppState = Record<string, unknown>> = { native: TNative; appState: TAppState; version: number }`. Excalidraw: `native = { elements: ExcalidrawElement[]; files: BinaryFiles }`, `appState = { viewBackgroundColor }`. JSON Canvas: `native = JsonCanvasDocument { nodes, edges }`, `appState = JsonCanvasAppState`. `SerializedScene<TData> = { type: string; version: number; source: "agentic-canvas"; data: TData }`. Replace `cloneScene` with a generic `structuredClone`-based clone of `{ native, appState, version }`.
+- **Neutral object surface.** Widen `CanvasObjectType` to `string`; make `CanvasObjectSummary` geometry optional and add optional `label`/`pluginType`/`kind`; introduce `CanvasObjectDetail extends CanvasObjectSummary { raw: unknown }`. The plugin/controller `getObject` returns `CanvasObjectDetail`; Excalidraw's rich object type stays defined for Excalidraw-internal use and the gated shape tools cast to it. Make `createObject`/`updateObject` **optional** on `CanvasPlugin`; add `fileExtension: string`.
+- **Tool split.** Keep `registerBaselineTools` for the **universal** subset (drives everything through controller/plugin methods + `plugin.fileExtension`). Move the **Excalidraw-shape** tools (`create_object`, `update_object`, `find_objects`, `apply_canvas_patch`, `set_canvas_background`) into a separate registrar gated in `buildServer.ts` to plugins that support the shape model (e.g. `typeof plugin.createObject === "function"`). Excalidraw keeps all its tools; jsoncanvas exposes only universal + its own tools (spec §15.1).
+- **Neutral WS protocol.** `scene:set` and `scene:changed` carry `canvas: string` + `scene: unknown` (+ optional `appState`). Excalidraw's `scene` = `{ elements, files }`; JSON Canvas's `scene` = `{ nodes, edges }`. Keep export/selection messages unchanged.
+- **Registry + routing.** Static `canvasPlugins` map (`{ excalidraw, jsoncanvas }`); CLI/`httpServer` resolve by key; `GET /canvas-info` returns `{ canvas, mcpUrl, wsUrl }`; a web router picks the renderer.
+- **Browser.** Reuse `CanvasWsClient` (generalized). New `@xyflow/react` renderer maps JSON Canvas nodes/edges ↔ React Flow; React Flow state never leaks into `.canvas` (mapping is browser-only).
 
-## 5. Architecture and design
+**Why this fits:** it follows the spec's milestones and file layout, keeps Excalidraw's types/behavior intact (changes are widening/additive + relocations), and confines the only new runtime dependency to the browser bundle — consistent with how Excalidraw/React are already handled.
 
-**Topology (one process):**
-```
-            ┌──────────────────────────── Node process (npx agentic-canvas) ───────────────────────────┐
- MCP client │  Express  ──/mcp (Streamable HTTP)──►  McpServer ──► CanvasController (authoritative Scene)│
- (agent) ──►│     │                                                      │  ▲                            │
-            │     ├──/ (static dist/web)                                  │  │ apply ops / read           │
- Browser ◄──┼─────┘                                              broadcast│  │                            │
- (human)  ◄─┼──────────────── /ws (WebSocket) ◄──── wsBridge ◄────────────┘  └── user edits (scene:changed)
-            └──────────────────────────────────────────────────────────────────────────────────────────┘
-```
+**Risks/trade-offs:** the M0 type changes touch many files (mechanical). Mitigated by doing M0 as its own milestone gated on the full existing test suite staying green before any jsoncanvas code is added.
 
-**Main components:** CLI → HTTP server (Express static + `/mcp` + `/ws` upgrade) → `McpServer` (tools) → `CanvasController` (authoritative scene + versioning) ↔ `wsBridge` (browser sync + export) ↔ browser `CanvasApp` (Excalidraw).
+## 5. Implementation milestones
 
-**Data flow & state:**
-- **Canonical state = Excalidraw native element array** held in `CanvasController` as plain JSON (`Scene = { elements, appState:{viewBackgroundColor}, files }`) plus a monotonically increasing integer `version`.
-- **Agent write** (`create_object`, `draw_*`, etc.): tool handler → `CanvasController.apply(mutator)` → mutate elements, `version++` → `wsBridge.broadcast({type:'scene:set', version, elements, appState})` to **all** browser clients.
-- **Agent read** (`list_objects`, `get_object`, `get_canvas_state`): resolved directly from the controller's in-memory scene via the adapter — no browser round-trip; works even if the browser momentarily disconnects.
-- **Human edit:** Excalidraw `onChange` (debounced ~200ms) → browser sends `{type:'scene:changed', elements, appState}` → controller replaces scene, `version++`, broadcasts `scene:set` to **other** clients only.
-- **Echo-loop guard:** when the browser applies a server `scene:set` it sets `applyingRemote=true` and skips the next `onChange`-driven `scene:changed`; the server never rebroadcasts a `scene:changed` to its originator. Browser uses `captureUpdate: "IMMEDIATELY"` so agent changes are human-undoable.
-- **Element construction:** server builds elements by hand (`buildElement`) using the documented schema (§6 Data models). For bound arrows/labels it sets `startBinding`/`endBinding`/`containerId`/`boundElements` loosely; the browser's `updateScene` runs Excalidraw `restore({ repairBindings: true })` to finalize geometry. *(Fallback if fidelity is poor — see Risk register.)*
-- **Screenshot:** `screenshot` tool → `wsBridge.requestExport(opts)` sends `{type:'export:request', id}` to one connected client → browser `exportToBlob` → `{type:'export:result', id, mimeType, base64}` → tool returns an MCP `image` content block (`{type:'image', data, mimeType}`) and, if `path` given, `workspace` writes the PNG. If no client is connected, return a clear MCP error.
-- **Save/open:** `save_canvas` serializes `{type:'excalidraw',version:2,source:'agentic-canvas',elements,appState,files}` (plain `JSON.stringify`, **no `@excalidraw` import in Node**) to a workspace-resolved path; `open_canvas` reads/validates JSON, sets it as the scene (`version++`, broadcast). Browser normalizes on apply.
+### Milestone M0: Plugin-neutral core (no behavior change)
 
-**Error handling:** tool handlers validate inputs with Zod and return `{ isError: true, content:[{type:'text', text}] }` on bad input / missing object id / no connected browser / export timeout / path outside workspace. The server logs to **stderr** only (stdout stays clean). Startup validates the workspace dir and port.
+**Goal:** Core, controller, protocol, CLI, server wiring, and baseline tools become plugin-agnostic; Excalidraw is selected via a registry and behaves identically.
 
-**Configuration:** CLI flags (with optional env fallbacks, §10). No config file in v1.
+**Files likely to change:**
+- `src/core/scene.ts` (generic `Scene`/`SerializedScene`, neutral summaries, generic clone)
+- `src/core/plugin.ts` (`fileExtension`, optional `createObject`/`updateObject`, neutral return types)
+- `src/server/canvasController.ts` (generic scene/snapshot/replace/clone)
+- `src/shared/protocol.ts` (neutral `scene:set`/`scene:changed`)
+- `src/server/wsBridge.ts` (`sendScene`/`scene:changed` payloads)
+- `src/mcp/baselineTools.ts` + `src/mcp/buildServer.ts` (universal vs gated shape tools, `fileExtension`)
+- `src/plugins/excalidraw/index.ts`, `format.ts`, `adapter.ts`, `elements.ts` (read/write `scene.native.elements`/`scene.native.files`; implement `fileExtension`; provide the Excalidraw object type)
+- `src/cli/index.ts`, `src/server/httpServer.ts` (registry resolution), new `src/core/registry.ts` (or `src/plugins/registry.ts`)
+- `src/server/app.ts` (`GET /canvas-info`)
+- `src/web/CanvasApp.tsx`, `src/web/wsClient.ts`, `src/web/sceneApply.ts`, `src/web/sceneSync.ts` (consume neutral `scene` payload for Excalidraw = `{ elements, files }`)
 
-**Security/privacy:** local-only — bind to `127.0.0.1` by default; enable the SDK's DNS-rebinding protection with `allowedHosts: ['127.0.0.1','localhost']`. All file I/O is confined to the workspace root via `workspace.ts` (reject `..` escapes and absolute paths outside root). No secrets, no network calls, no telemetry.
+**Files to inspect first:**
+- `src/core/scene.ts`, `src/core/plugin.ts`, `src/server/canvasController.ts`, `src/mcp/baselineTools.ts`, `src/plugins/excalidraw/index.ts`
+- Tests that pin current behavior: `tests/canvasController.test.ts`, `tests/plugin-baseline.test.ts`, `tests/mcp-baseline.test.ts`, `tests/wsBridge.test.ts`, `tests/web-sceneApply.test.ts`, `tests/web-sceneSync.test.ts`
 
-**Accessibility:** Excalidraw provides its own canvas a11y; the app shell adds a visible "MCP: connected/url" status line and keeps the page keyboard-focusable. No custom complex UI.
+**Implementation steps:**
+1. Generalize `src/core/scene.ts`: add `Scene<TNative,TAppState>` and `SerializedScene<TData>`; keep `ExcalidrawElement` + an `ExcalidrawNative = { elements; files }` type; widen `CanvasObjectType` to `string`; make `CanvasObjectSummary` geometry optional + add `label?`/`pluginType?`/`kind?`; add `CanvasObjectDetail`; replace `cloneScene` with generic `structuredClone` of the wrapper (keep `cloneElement` only if still referenced).
+2. Update `src/core/plugin.ts`: add `readonly fileExtension: string`; make `createObject?`/`updateObject?` optional; type `getObject` → `CanvasObjectDetail | undefined`, `listObjects` → `CanvasObjectSummary[]`; `serialize` → `SerializedScene`.
+3. Update `CanvasController`: store generic `Scene`; `getSnapshot()` → `{ version, canvas: plugin.name, native, appState }`; `replaceFromBrowser(native, appState?, origin?)`; clone via the generic helper; keep transaction/undo/redo logic intact.
+4. Update `src/shared/protocol.ts`: `SceneSetMessage { type:"scene:set", canvas, version, scene: unknown, appState? }`; `SceneChangedMessage { type:"scene:changed", canvas, baseVersion, scene: unknown, appState? }`. Keep `Hello`/export/selection messages unchanged. Update `wsBridge.ts` accordingly.
+5. Refactor MCP tools: keep universal tools in `registerBaselineTools`; extract shape tools (`create_object`, `update_object`, `find_objects`, `apply_canvas_patch`, `set_canvas_background`) into `registerShapeObjectTools`; in `buildServer.ts`, call it only when the plugin supports the shape model. Replace hardcoded `.excalidraw` in `save_canvas`/`open_canvas` with `context.controller`/`plugin.fileExtension`; keep `.png` for screenshots.
+6. Update the Excalidraw plugin to use `scene.native.elements`/`scene.native.files`, set `fileExtension: ".excalidraw"`, keep `serialize`/`deserialize` producing `type: "excalidraw"` (now via `SerializedScene<ExcalidrawData>`), and provide its rich object type for the gated shape tools.
+7. Add `src/core/registry.ts` exporting `canvasPlugins = { excalidraw: createExcalidrawPlugin }` (jsoncanvas added in M2). Update CLI validation to use registry keys; update `httpServer.ts` to construct `canvasPlugins[canvas]()`; broaden `StartServerOptions.canvas` to `string`.
+8. Add `GET /canvas-info` in `app.ts` returning `{ canvas: plugin.name, mcpUrl, wsUrl }`.
+9. Update the Excalidraw web path to read `scene` as `{ elements, files }` from the neutral `scene:set`, and send `{ elements, files }` in `scene:changed`. Generalize `wsClient.ts` send/receive signatures.
 
-**Intentionally simple:** full-scene replace on every change (no diffing/CRDT); single browser session assumed (broadcast supports several but no conflict UI); naive flowchart layout; no undo coordination beyond Excalidraw's own.
+**Tests/checks for this milestone:**
+- Update existing tests only where the wire/shape changed (e.g. `wsBridge.test.ts` scene payload, `web-sceneApply`/`web-sceneSync`). Do not weaken assertions.
+- Run: `npm run verify`
+- Run: `npm run build && npm start -- --canvas excalidraw` (smoke; Ctrl-C after confirming it serves).
+- Expected result: all existing tests pass; Excalidraw save/open still produces `type:"excalidraw"` files; `/canvas-info` returns `excalidraw`.
+
+**Acceptance criteria:**
+- [ ] `--canvas excalidraw` works end-to-end with no behavior change.
+- [ ] No Excalidraw-specific literals remain in `core`/`controller`/`protocol`/`cli`/`server` except inside the Excalidraw plugin.
+- [ ] `GET /canvas-info` responds with the active canvas.
+- [ ] Full existing test suite green.
+
+**Rollback/safety note:** Pure refactor; no jsoncanvas code yet. If a wire change regresses Excalidraw, revert protocol/wsBridge changes together (they form one contract).
+
+---
+
+### Milestone M1: JSON Canvas model, schemas, format, validation
+
+**Goal:** Standalone, tested JSON Canvas data layer (no plugin wiring yet).
+
+**Files likely to change (new):**
+- `src/plugins/jsoncanvas/model.ts` (types from spec §10: document, node union, edge, app state, colors, sides, ends)
+- `src/plugins/jsoncanvas/schemas.ts` (Zod schemas for file format + MCP tool inputs)
+- `src/plugins/jsoncanvas/format.ts` (`serialize`→`JSON.stringify(doc,null,2)+"\n"`, `deserialize`, `.canvas` extension handling)
+- `src/plugins/jsoncanvas/validation.ts` (validate + repair per spec §18)
+- `tests/jsoncanvas/jsoncanvas-format.test.ts`, `tests/jsoncanvas/jsoncanvas-validation.test.ts`
+- `tests/fixtures/jsoncanvas/{minimal,text-file-link-group,labeled-edges,obsidian-sample}.canvas`
+
+**Files to inspect first:** `src/plugins/excalidraw/format.ts`, `src/plugins/excalidraw/adapter.ts`, `src/mcp/schemas.ts` (Zod conventions), `tests/plugin-baseline.test.ts`.
+
+**Implementation steps:**
+1. Define model types exactly per spec §10 (text/file/link/group nodes; edges with sides/ends/color/label; `JsonCanvasColor = ` + "`#${string}`" + ` | "1".."6"`).
+2. Zod schemas: node/edge/document schemas (integer geometry, min width/height, color enum, `http(s)` URL for links, `subpath` starts with `#`), plus per-tool input shapes.
+3. `format.ts`: deserialize parses JSON, defaults missing `nodes`/`edges` to `[]`, preserves array order; serialize writes stable pretty JSON with trailing newline. `.canvas` extension append/validate (reuse the `normalizeToolPath` idea, JSON Canvas variant).
+4. `validation.ts`: detect every error in spec §18.1; `repair:true` performs §18.2 fixes and returns warnings.
+5. Write fixtures and tests (spec §20.1): serialize/deserialize round-trip per node type, append `.canvas`, reject wrong extension, preserve order; reject duplicate IDs/dangling edges/invalid sides/colors; repair drops dangling edges + reports warnings.
+
+**Tests/checks for this milestone:**
+- Run: `npm test -- jsoncanvas-format jsoncanvas-validation`
+- Expected result: new tests pass; fixtures load and re-serialize without losing required fields.
+
+**Acceptance criteria:**
+- [ ] All node/edge types round-trip; order preserved; trailing newline present.
+- [ ] Validation rejects malformed docs; repair mode fixes + warns.
+- [ ] No coupling to core/controller yet.
+
+**Rollback/safety note:** Self-contained new directory; deletable without affecting the rest.
+
+---
+
+### Milestone M2: JSON Canvas plugin baseline operations
+
+**Goal:** `createJsonCanvasPlugin()` implements `CanvasPlugin`; registry + CLI + server accept `jsoncanvas`; universal MCP tools work.
+
+**Files likely to change:**
+- New `src/plugins/jsoncanvas/index.ts` (plugin factory), `src/plugins/jsoncanvas/adapter.ts` (node/edge → `CanvasObjectSummary`/`CanvasObjectDetail` per spec §14), `src/plugins/jsoncanvas/layout.ts` (grid placement for default coords), `src/plugins/jsoncanvas/search.ts`
+- `src/core/registry.ts` (add `jsoncanvas: createJsonCanvasPlugin`)
+- `src/cli/index.ts` help text; `src/server/httpServer.ts` (already registry-driven from M0)
+- `tests/jsoncanvas/jsoncanvas-adapter.test.ts`, `tests/jsoncanvas/jsoncanvas-layout.test.ts`, and an MCP baseline test for jsoncanvas
+
+**Files to inspect first:** `src/plugins/excalidraw/index.ts`, `src/plugins/excalidraw/adapter.ts`, `src/mcp/baselineTools.ts` (universal subset), `tests/mcp-baseline.test.ts`.
+
+**Implementation steps:**
+1. Implement plugin: `name:"jsoncanvas"`, `fileExtension:".canvas"`, `createInitialScene` (`{ native:{nodes:[],edges:[]}, appState:{}, version:0 }`), `getMetadata`, `listObjects` (nodes + edges, optional type filter), `getObject` (→ `CanvasObjectDetail` with `raw` + `references` incoming/outgoing/contained), `deleteObjects` (and cascade edges referencing deleted nodes), `clear`, `serialize`/`deserialize` (from M1). Omit `createObject`/`updateObject` (jsoncanvas uses its own tools in M3).
+2. Adapter per spec §14.2: `pluginType` (`jsoncanvas.text|file|link|group|edge`), `kind`, summary text (first heading/80 chars, file+subpath, URL host/path, group label, edge label or `from -> to`).
+3. ID strategy per spec §11 (`createJsonCanvasId(prefix)`); grid placement per spec §12.3 for omitted coords.
+4. Register in `src/core/registry.ts`; update CLI help.
+5. Tests: adapter mappings + references + group containment; layout determinism; an MCP test via `connectInMemory` asserting `get_canvas_state` returns `canvas:"jsoncanvas"`, `list_objects` returns nodes+edges, `save_canvas` writes `.canvas`, and that shape tools (`create_object`, `find_objects`) are **not** registered for jsoncanvas.
+
+**Tests/checks for this milestone:**
+- Run: `npm test -- jsoncanvas`
+- Run: `npm run verify`
+- Expected result: jsoncanvas baseline behaves; Excalidraw tests still green.
+
+**Acceptance criteria:**
+- [ ] `--canvas jsoncanvas` boots; `get_canvas_state.canvas === "jsoncanvas"`.
+- [ ] `list_objects` includes nodes and edges; `save_canvas` writes `*.canvas`; `open_canvas` reads it.
+- [ ] Excalidraw-shape tools absent under jsoncanvas.
+
+**Rollback/safety note:** Registry entry is the only cross-cutting change; remove it to disable jsoncanvas.
+
+---
+
+### Milestone M3: JSON Canvas MCP tools
+
+**Goal:** Agent-facing tools to build and edit maps, including atomic bulk patch.
+
+**Files likely to change:**
+- New `src/plugins/jsoncanvas/tools.ts` (registered by the plugin's `registerTools`)
+- `src/plugins/jsoncanvas/search.ts`, `layout.ts`, `validation.ts` (used by tools)
+- `tests/jsoncanvas/jsoncanvas-tools.test.ts`
+
+**Files to inspect first:** `src/plugins/excalidraw/tools.ts`, `src/mcp/baselineTools.ts` (`applyCanvasPatch` transaction pattern + `errorResult`), `src/core/plugin.ts` (`PluginToolContext.controller.transaction`).
+
+**Implementation steps:**
+1. Implement spec §15.2–§15.12 tools, each mutating via `controller.mutateScene`/`controller.transaction`, returning `{ isError:true }` on validation failure: `add_text_card`, `add_file_card`, `add_link_card`, `create_group`, `connect_cards`, `update_card`, `update_edge`, `find_cards`, `find_edges`, `auto_layout_cards`, `apply_jsoncanvas_patch`.
+2. Enforce rules: default sizes (spec §12.2), default grid placement, integer geometry, `toEnd` default `arrow`, both endpoints must exist for edges, reject fields not applicable to a node type, `null` removes optional fields, reject exact-duplicate edges, `http(s)`-only link URLs, `subpath` starts with `#`.
+3. `auto_layout_cards`: deterministic layered layout per spec §12.4 (roots → longest-path layers → stable in-layer sort → orphans below → optional group resize); return moved IDs + old/new bounds. Plain TypeScript, no layout dependency.
+4. `apply_jsoncanvas_patch`: all-or-nothing inside `controller.transaction`; validate final document before commit; support `repair`; return created/updated/deleted summaries.
+5. Tests (spec §20): each tool creates valid native data; `connect_cards` valid edge; `find_cards` searches all fields; `apply_jsoncanvas_patch` atomic — a failing op leaves the scene unchanged; layout deterministic.
+
+**Tests/checks for this milestone:**
+- Run: `npm test -- jsoncanvas-tools jsoncanvas-layout`
+- Run: `npm run verify`
+- Expected result: a 10-card/12-edge map can be built in one patch; invalid patch rolls back fully.
+
+**Acceptance criteria:**
+- [ ] All JSON Canvas tools registered and validated.
+- [ ] `apply_jsoncanvas_patch` is transactional and validated.
+- [ ] Deterministic `auto_layout_cards` output.
+
+**Rollback/safety note:** Tools live only in the jsoncanvas plugin; no impact on Excalidraw or universal tools.
+
+---
+
+### Milestone M4: Browser renderer (React Flow) + live sync
+
+**Goal:** Render JSON Canvas in the browser with drag/resize/edit/connect/delete/selection/screenshot, syncing both directions.
+
+**Files likely to change:**
+- `package.json` (add `@xyflow/react` to **devDependencies**), lockfile
+- New `src/web/canvases/jsoncanvas/{JsonCanvasApp,JsonCanvasNode,JsonCanvasEdge,JsonCanvasGroup}.tsx`, `editor.tsx`, `geometry.ts`
+- New `src/web/App.tsx` (fetch `/canvas-info`, switch renderer) + `src/web/main.tsx` (render `<App/>`)
+- `src/web/wsClient.ts` (generic scene payloads — from M0), optional `src/web/shared/{useCanvasSync,exportScreenshot}.ts`
+- `tests/jsoncanvas/jsoncanvas-ws-roundtrip.test.ts` (server-side WS round-trip using the jsoncanvas plugin, mirroring `tests/wsBridge.test.ts`)
+
+**Files to inspect first:** `src/web/CanvasApp.tsx`, `src/web/wsClient.ts`, `src/web/sceneApply.ts`, `src/web/exportImage.ts`, `src/web/selection.ts`, `tests/wsBridge.test.ts`, `vite.config.ts`.
+
+**Implementation steps:**
+1. Add `@xyflow/react`; confirm Vite bundles it into `dist/web` and the Node server still does not import it.
+2. `App.tsx`: fetch `/canvas-info`; render `<CanvasApp/>` (Excalidraw) or `<JsonCanvasApp/>`.
+3. Map JSON Canvas ↔ React Flow per spec §16.2 (nodes by type, edges with handles/labels/markers); keep the mapping browser-only so React Flow state never enters `.canvas`.
+4. Handle `scene:set` (apply nodes/edges) and emit `scene:changed` with `{ nodes, edges }` on user edits (debounced, mirroring the Excalidraw echo-suppression in `sceneSync.ts`). Implement node card editors (text/link/file/group label), edge creation by dragging handles, delete, zoom/pan/fit.
+5. Implement screenshot export (React Flow viewport → PNG → base64) responding to `export:request`; implement `selection:request`/`selection:set` against React Flow selection state.
+6. Group rendering per spec §16.4 (behind nodes; geometric containment; moving a group does not move contents in MVP).
+7. Add a server-side WS round-trip test for jsoncanvas (browser `scene:changed` → `controller` reflects nodes/edges; `scene:set` broadcast carries the JSON Canvas payload).
+
+**Tests/checks for this milestone:**
+- Run: `npm run verify`
+- Run: `npm run build` (web bundle builds with `@xyflow/react`)
+- Manual (spec §23): MCP-created card appears live; dragging a card updates `get_object` x/y; browser-created edge appears in server state; `screenshot` returns PNG.
+- Expected result: bidirectional sync works; screenshot/selection work.
+
+**Acceptance criteria:**
+- [ ] Human edit appears in `list_objects` after WS sync; MCP-created card appears live in browser.
+- [ ] `screenshot` returns a PNG from the JSON Canvas renderer; selection round-trips.
+- [ ] `@xyflow/react` only in the browser bundle (not imported by Node code).
+
+**Rollback/safety note:** Renderer is selected by `/canvas-info`; Excalidraw renderer path is untouched. Keep React Flow imports confined to `src/web/canvases/jsoncanvas`.
+
+---
+
+### Milestone M5: Docs, verification, release hygiene
+
+**Goal:** Document usage and finish acceptance.
+
+**Files likely to change:** `README.md`, `AGENTS.md`, `CHANGELOG`/release notes if present.
+
+**Implementation steps:**
+1. `README.md`: add `--canvas jsoncanvas` to flags, `npm start -- --canvas jsoncanvas` / `npx ... --canvas jsoncanvas`, the example MCP flow (spec §21), and the known-limitations note.
+2. `AGENTS.md`: remove the "no second plugin" rule; document the two canvases and the registry; fix the dangling `PLAN.md` reference (point to `docs/project-briefs/PLAN.md`).
+3. Run `npm run release:dry-run` (verify + build + smoke + audit + publish dry-run) and the manual checklist (spec §23).
+
+**Tests/checks for this milestone:**
+- Run: `npm run verify` then `npm run release:dry-run`
+- Expected result: clean verify; dry-run packs successfully.
+
+**Acceptance criteria:**
+- [ ] README documents jsoncanvas usage and limitations.
+- [ ] AGENTS.md no longer forbids a second plugin; references resolve.
+- [ ] Manual checklist passes.
+
+**Rollback/safety note:** Docs-only; no runtime impact.
 
 ## 6. Data, API, and interface contracts
 
-### UI screens or views
-| View | Purpose | Main elements | Empty/error states |
+### State/storage changes
+| Object/file | Change | Migration needed? | Compatibility concern |
 |---|---|---|---|
-| Canvas page (`/`) | The shared drawing surface | Full-window `<Excalidraw>`; small status bar showing canvas type, MCP URL, and WS connection state | Empty canvas on first load; "Disconnected — retrying…" banner if WS drops (auto-reconnect) |
+| `.canvas` files | New; standards-compliant JSON Canvas v1.0 | No | Must stay free of Agentic Canvas metadata (Obsidian compatibility) |
+| `.excalidraw` files | Unchanged (`type:"excalidraw"`, version 2) | No | Existing files must still round-trip |
+| In-memory `Scene` | `{ native, appState, version }` generic wrapper | N/A (runtime only) | Excalidraw native = `{ elements, files }` |
 
-### User interactions
-| Interaction | Trigger | Expected behavior | Validation/error behavior |
+### API behavior (selected)
+| Case | Input | Expected behavior | Error behavior |
 |---|---|---|---|
-| Human draws/edits/moves/deletes | Mouse/keyboard in Excalidraw | Debounced `scene:changed` to server; server becomes consistent; other clients update | If WS down, edits stay local and resync on reconnect (full scene) |
-| Agent mutates scene | MCP tool call | `scene:set` broadcast; change appears live; human can Ctrl+Z | Invalid input → tool returns `isError` text; scene unchanged |
-| Agent requests screenshot | `screenshot` tool | Browser exports PNG; returned inline (+ optional file) | No client/timeout → `isError` with guidance |
-| WS reconnect | Browser reconnect | On `hello`, server replies full `scene:set` at current version | — |
-
-### API endpoints (HTTP)
-| Method | Path | Purpose | Request | Response | Error cases |
-|---|---|---|---|---|---|
-| GET | `/` and `/assets/*` | Serve built browser app (`dist/web`) | — | HTML/JS/CSS | 404 if asset missing |
-| GET | `/healthz` | Liveness/readiness probe for tests | — | `200 {"status":"ok","canvas":"excalidraw","version":N}` | — |
-| POST | `/mcp` | MCP Streamable HTTP requests | JSON-RPC (MCP) | JSON-RPC / SSE stream | `400` no/invalid session on non-initialize; `405` per SDK |
-| GET | `/mcp` | MCP server→client SSE stream (session) | `mcp-session-id` header | `text/event-stream` | `400` missing session |
-| DELETE | `/mcp` | Terminate MCP session | `mcp-session-id` header | `200` | `400` missing session |
-| (WS) | `/ws` | Browser↔server scene sync | WS upgrade | JSON messages (see protocol) | Auto-reconnect on drop |
-
-**Streamable HTTP wiring (v1.x):** maintain a single local session. On `POST /mcp`, reuse the existing `StreamableHTTPServerTransport` by `mcp-session-id`, or, when the body is an `initialize` request (`isInitializeRequest` from `@modelcontextprotocol/sdk/types.js`), create one with `sessionIdGenerator: () => randomUUID()`, `enableDnsRebindingProtection: true`, `allowedHosts: ['127.0.0.1','localhost']`, connect the `McpServer`, then `await transport.handleRequest(req, res, req.body)`. `GET`/`DELETE` look the transport up by session id. Reference: `@modelcontextprotocol/typescript-sdk` Streamable-HTTP server example.
-
-**WS protocol (`src/shared/protocol.ts`):**
-```ts
-// browser -> server
-type Hello       = { type: 'hello' };
-type SceneChanged= { type: 'scene:changed'; elements: ExcalidrawElement[]; appState?: { viewBackgroundColor?: string } };
-type ExportResult= { type: 'export:result'; id: string; mimeType: string; base64: string };
-type ExportError = { type: 'export:error'; id: string; message: string };
-// server -> browser
-type SceneSet    = { type: 'scene:set'; version: number; elements: ExcalidrawElement[]; appState?: { viewBackgroundColor?: string } };
-type ExportRequest = { type: 'export:request'; id: string; mimeType?: 'image/png'; exportPadding?: number };
-```
-
-### CLI commands
-| Command | Purpose | Arguments/options | Output | Error behavior |
-|---|---|---|---|---|
-| `agentic-canvas` | Start server + open browser | `--canvas <name>` (default `excalidraw`), `--port <n>` (default `3333`), `--host <h>` (default `127.0.0.1`), `--workspace <dir>` (default cwd), `--open`/`--no-open` (default open), `-h/--help`, `-v/--version` | Prints `Canvas: http://host:port` and `MCP: http://host:port/mcp`; stays running | Unknown `--canvas` → list available + exit 1; port in use → try next free port and print chosen one; bad workspace → exit 1 with message |
-
-### Data models
-**Scene (canonical, in `CanvasController`):**
-| Model | Fields | Validation | Storage |
-|---|---|---|---|
-| `Scene` | `elements: ExcalidrawElement[]`, `appState: { viewBackgroundColor: string }`, `files: BinaryFiles`, `version: number` | `version` strictly increasing; elements conform to element schema | In memory; persisted on `save_canvas` |
-
-**Normalized `CanvasObject` (baseline-tool projection; `core/scene.ts`):**
-```ts
-type CanvasObjectType = 'rectangle'|'ellipse'|'diamond'|'line'|'arrow'|'text'|'frame';
-interface CanvasObjectSummary { id: string; type: CanvasObjectType; x: number; y: number; width: number; height: number; text?: string; }
-interface CreateObjectSpec {
-  type: CanvasObjectType;
-  x: number; y: number; width?: number; height?: number;
-  text?: string;                         // text content (text type) or label
-  points?: [number, number][];           // line/arrow, relative to x,y
-  style?: { strokeColor?: string; backgroundColor?: string;
-            fillStyle?: 'hachure'|'cross-hatch'|'solid';
-            strokeWidth?: 1|2|4; strokeStyle?: 'solid'|'dashed'|'dotted';
-            roughness?: 0|1|2; opacity?: number; fontSize?: number; textAlign?: 'left'|'center'|'right'; };
-  start?: { elementId: string } | { x: number; y: number };  // arrow start
-  end?:   { elementId: string } | { x: number; y: number };  // arrow end
-  containerId?: string;                  // bind text into a container
-  groupIds?: string[];
-}
-type UpdateObjectPatch = Partial<Omit<CreateObjectSpec,'type'>>;
-```
-
-**Excalidraw element schema essentials (`elements.ts` `buildElement` defaults — build by hand, no `@excalidraw` import):**
-- Common (every element): `id` (string), `type`, `x`, `y`, `width`, `height`, `angle:0`, `strokeColor:'#1e1e1e'`, `backgroundColor:'transparent'`, `fillStyle:'solid'`, `strokeWidth:2`, `strokeStyle:'solid'`, `roughness:1`, `opacity:100`, `groupIds:[]`, `frameId:null`, `roundness:null`, `seed` (random int), `version:1`, `versionNonce` (random int), `isDeleted:false`, `boundElements:null`, `updated` (ms), `link:null`, `locked:false`.
-- Text adds: `text`, `fontSize:20`, `fontFamily:1`, `textAlign:'left'`, `verticalAlign:'top'`, `containerId:null`, `originalText`, `lineHeight:1.25`, `autoResize:true`.
-- Linear/arrow adds: `points:[[0,0],[dx,dy]]`, `lastCommittedPoint:null`, `startBinding:null`, `endBinding:null`, `startArrowhead:null`, `endArrowhead:'arrow'` (arrows) / `null` (lines). Bindings: `{ elementId, focus:0, gap:4 }`, and push `{ id, type:'arrow' }` into each bound shape's `boundElements`.
-- IDs/seeds use `crypto.randomUUID()` / random 31-bit ints. Excalidraw `restore({repairBindings:true})` in the browser fills any gaps and fixes binding geometry.
-
-### MCP tool contracts
-
-**Baseline (shared by all plugins — defined in `mcp/baselineTools.ts`):**
-| Tool | Purpose | Input (Zod shape) | Output |
-|---|---|---|---|
-| `get_canvas_state` | Canvas metadata/state | `{}` | text JSON: `{ canvas, version, objectCount, viewBackgroundColor, clientsConnected }` |
-| `list_objects` | List object summaries | `{ type?: CanvasObjectType }` | text JSON: `CanvasObjectSummary[]` |
-| `get_object` | Full normalized object | `{ id: string }` | text JSON: object detail, or `isError` if missing |
-| `create_object` | Create one object | `CreateObjectSpec` | text JSON: `{ id }` |
-| `update_object` | Patch an object | `{ id: string } & UpdateObjectPatch` | text JSON: `{ id }`, or `isError` |
-| `delete_object` | Delete object(s) | `{ ids: string[] }` | text JSON: `{ deleted: string[] }` |
-| `clear_canvas` | Remove all elements | `{}` | text JSON: `{ cleared: true }` |
-| `save_canvas` | Save `.excalidraw` to workspace | `{ path?: string }` (default `canvas.excalidraw`) | text JSON: `{ path }` (absolute), or `isError` |
-| `open_canvas` | Load `.excalidraw` from workspace | `{ path: string }` | text JSON: `{ path, objectCount }`, or `isError` |
-| `screenshot` | PNG of current scene | `{ path?: string, exportPadding?: number }` | `image` content block + optional `{ path }`; `isError` if no client/timeout |
-
-**Excalidraw-specific (defined in `plugins/excalidraw/tools.ts`):**
-| Tool | Purpose | Input (Zod shape) | Output |
-|---|---|---|---|
-| `draw_rectangle` | Rectangle (optional label) | `{ x,y,width,height, text?, style? }` | `{ id }` |
-| `draw_ellipse` | Ellipse (optional label) | `{ x,y,width,height, text?, style? }` | `{ id }` |
-| `draw_diamond` | Diamond (optional label) | `{ x,y,width,height, text?, style? }` | `{ id }` |
-| `draw_line` | Polyline | `{ x,y, points:[[number,number]...], style? }` | `{ id }` |
-| `draw_arrow` | Arrow, optionally bound | `{ start:{elementId}|{x,y}, end:{elementId}|{x,y}, text?, style? }` | `{ id }` |
-| `add_text` | Standalone text or container label | `{ x?,y?, text, containerId?, style? }` | `{ id }` |
-| `create_frame` | Frame grouping elements | `{ x,y,width,height, name?, childIds?: string[] }` | `{ id }` |
-| `group_objects` | Group existing elements | `{ ids: string[] }` | `{ groupId }` |
-| `create_flowchart` | Nodes + edges → laid-out, arrow-wired diagram | `{ nodes:[{id,label,shape?,x?,y?}], edges:[{from,to,label?}], direction?:'TB'|'LR', spacingX?, spacingY? }` | `{ nodeIds: Record<string,string>, arrowIds: string[] }` |
-
-`create_flowchart` layout (`flowchart.ts`, deterministic): if a node has `x`/`y`, honor it; otherwise place nodes by insertion order along `direction` (TB = stacked rows, LR = columns) on a fixed grid (`spacingX≈220`, `spacingY≈140`, default node `160×60`). Create node shapes (default `rectangle`) with labels, then bound arrows for each edge via `startBinding`/`endBinding`. Layout is intentionally simple — no edge-crossing minimization.
-
-## 7. Implementation milestones
-
-### Milestone M1: Repository scaffold and agent guidance
-**Goal:** An installable, lintable, type-checkable, testable empty skeleton.
-**Files to create or change:**
-- `package.json`, `tsconfig.json`, `tsconfig.server.json`, `vite.config.ts`, `tsup.config.ts`, `biome.json`, `vitest.config.ts`, `.gitignore`, `index.html`, `README.md` (skeleton), `AGENTS.md` (from §8), `src/shared/logger.ts`, `tests/smoke.test.ts` (trivial passing test).
-
-**Reference patterns or docs to inspect first:**
-- Vite "React + TS" template; Biome `init` defaults; Vitest config docs; `@modelcontextprotocol/sdk` README (install + imports).
-
-**Implementation steps:**
-1. `npm init`; add scripts: `dev`, `build`, `build:web`, `build:server`, `start`, `typecheck`, `lint`, `format`, `test`, `prepare`.
-2. Add deps: runtime `@modelcontextprotocol/sdk@^1.29.0 express ws zod open`; dev `typescript @types/node @types/express @types/ws vite @vitejs/plugin-react react react-dom @excalidraw/excalidraw tsup tsx vitest jsdom @biomejs/biome`.
-3. Configure `tsconfig.json` (`strict`, `jsx:'react-jsx'`, `moduleResolution:'Bundler'`, `noEmit`), `tsconfig.server.json` (excludes `src/web`), `tsup.config.ts` (entry `src/cli/index.ts`, `format:['esm']`, `target:'node20'`, shebang preserved, `clean`), `vite.config.ts` (react plugin, `build.outDir:'dist/web'`), `biome.json`, `vitest.config.ts` (`environment:'node'`, jsdom per-file via comment).
-4. Add `bin: { "agentic-canvas": "dist/cli/index.js" }`, `type: "module"`, `files: ["dist"]`, `engines.node: ">=20"`.
-5. Add the trivial smoke test.
-
-**Tests/checks for this milestone:**
-- Run: `npm install`
-- Run: `npm run typecheck` → no errors.
-- Run: `npm run lint` → clean.
-- Run: `npm test` → smoke test passes.
-
-**Acceptance criteria:**
-- [ ] `npm install` succeeds.
-- [ ] `npm run typecheck`, `npm run lint`, `npm test` all pass.
-- [ ] `AGENTS.md` and skeleton `README.md` exist.
-
-**Rollback/safety note:** Pure scaffold; if tooling misbehaves, delete generated config and regenerate from the Vite/Biome defaults. No product code yet.
-
-### Milestone M2: Canvas core + Excalidraw plugin baseline ops (headless)
-**Goal:** Pure, fully-tested domain layer — build/list/get/create/update/delete/clear/serialize/deserialize over an Excalidraw element array, with no server or browser.
-**Files to create or change:**
-- `src/core/scene.ts`, `src/core/plugin.ts`, `src/plugins/excalidraw/{index.ts,elements.ts,adapter.ts,format.ts}`, `tests/{elements,adapter,plugin-baseline}.test.ts`.
-
-**Reference patterns or docs to inspect first:**
-- §6 element schema; Excalidraw `restoreElements`/`convertToExcalidrawElements` docs; `.excalidraw` JSON shape.
-
-**Implementation steps:**
-1. Define `Scene`, `CanvasObject*`, `CreateObjectSpec`, `CanvasPlugin` interface (`createInitialScene`, `listObjects`, `getObject`, `createObject`, `updateObject`, `deleteObjects`, `clear`, `getMetadata`, `serialize`, `deserialize`, `registerTools`).
-2. Implement `elements.ts` `buildElement(spec)` with all defaults (§6). No `@excalidraw` import.
-3. Implement `adapter.ts` (native ↔ normalized).
-4. Implement `index.ts` baseline ops over the elements array; `format.ts` save/open JSON (plain).
-5. In `tests/elements.test.ts` add `// @vitest-environment jsdom`, import `restoreElements` from `@excalidraw/excalidraw`, and assert built elements survive normalization (ids stable, types preserved, bindings intact). If `restoreElements` cannot run in jsdom, fall back to asserting structural validity against the schema and record the limitation (this is the empirical answer to "can Node/jsdom run Excalidraw restore").
-
-**Tests/checks for this milestone:**
-- Run: `npm test` → `elements`, `adapter`, `plugin-baseline` pass.
-- Expected result: create→list→get→update→delete→clear behave; save→deserialize round-trips identical elements.
-
-**Acceptance criteria:**
-- [ ] Baseline ops covered by tests and passing.
-- [ ] `buildElement` output validated (via `restoreElements` or schema).
-- [ ] `.excalidraw` serialize/deserialize round-trips.
-
-**Rollback/safety note:** No I/O or network; revert by deleting `plugins/excalidraw` and `core`. The jsdom finding informs later milestones.
-
-### Milestone M3: MCP server + baseline tools over in-memory transport
-**Goal:** A working `McpServer` whose baseline tools mutate a `CanvasController`, proven via an in-process MCP client.
-**Files to create or change:**
-- `src/server/canvasController.ts`, `src/mcp/{buildServer.ts,baselineTools.ts,schemas.ts}`, `src/server/workspace.ts`, `tests/{mcp-baseline,workspace}.test.ts`.
-
-**Reference patterns or docs to inspect first:**
-- MCP SDK v1 `McpServer.registerTool` (raw Zod shape `inputSchema`), `InMemoryTransport.createLinkedPair`, `Client.callTool`; image content `{type:'image',data,mimeType}`.
-
-**Implementation steps:**
-1. `CanvasController`: holds plugin + `Scene` + `version`; `apply(mutator)` bumps version and invokes an injected `onChange` (wsBridge later); read methods for tools.
-2. `workspace.ts`: `resolveInWorkspace(p)` rejecting traversal/abs-escape; `readFile`/`writeFile` helpers.
-3. `baselineTools.ts`: register the 10 baseline tools; `screenshot` calls an injected `exporter` (stubbed in this milestone to return `isError: 'no canvas client'`).
-4. `buildServer.ts`: create `McpServer`, register baseline tools, then `plugin.registerTools(server, ctx)`.
-5. `tests/mcp-baseline.test.ts`: link `Client`↔`McpServer` via `InMemoryTransport`; call each baseline tool; assert controller state + responses. `tests/workspace.test.ts`: save/open round trip + traversal rejection.
-
-**Tests/checks for this milestone:**
-- Run: `npm test` → `mcp-baseline`, `workspace` pass.
-- Expected result: each baseline tool callable in-process; `save_canvas`/`open_canvas` hit the sandboxed workspace; traversal rejected.
-
-**Acceptance criteria:**
-- [ ] All baseline tools callable via MCP `Client` in-process.
-- [ ] Workspace path safety enforced and tested.
-- [ ] `screenshot` returns a clear error when no exporter/client.
-
-**Rollback/safety note:** No HTTP/browser; entirely in-memory + temp-dir file tests. Revert by removing `src/mcp` and `canvasController.ts`.
-
-### Milestone M4: HTTP server, Streamable-HTTP MCP, WS bridge, CLI
-**Goal:** `npx`-able process serving the (placeholder) web app, MCP over HTTP, and a working WS sync hub + screenshot round-trip.
-**Files to create or change:**
-- `src/server/{httpServer.ts,app.ts,mcpHttp.ts,wsBridge.ts}`, `src/cli/index.ts`, `src/shared/protocol.ts`, `tests/wsBridge.test.ts`.
-
-**Reference patterns or docs to inspect first:**
-- SDK Streamable-HTTP Express example (session by `mcp-session-id`, `isInitializeRequest`, `enableDnsRebindingProtection`/`allowedHosts`); `ws` server `handleUpgrade`.
-
-**Implementation steps:**
-1. `wsBridge.ts`: track clients; `broadcast(sceneSet, exceptClient?)`; `requestExport(opts)` → send `export:request` with `randomUUID`, await `export:result`/`export:error` with timeout (default 10s); on `hello` send current `scene:set`; on `scene:changed` call `controller.apply` (origin-tagged, rebroadcast to others). Wire `controller.onChange → broadcast`.
-2. `mcpHttp.ts`: implement the single-session Streamable-HTTP handlers (POST/GET/DELETE) per §6.
-3. `app.ts`: Express serving `dist/web` (fallback to a minimal placeholder page if not built), `/healthz`, mount `/mcp`.
-4. `httpServer.ts`: create `http.Server`, attach Express, handle `/ws` upgrade.
-5. `cli/index.ts`: parse flags (`parseArgs`), pick a free port if needed, start server, `open` the canvas URL unless `--no-open`, print URLs; `--help`/`--version`.
-6. `tests/wsBridge.test.ts`: drive the bridge with a fake WS client object — assert broadcast on apply, export round-trip success, export timeout error, and loop-guard (no rebroadcast to origin).
-
-**Tests/checks for this milestone:**
-- Run: `npm test` → `wsBridge` passes.
-- Run: `npm run build:server && node dist/cli/index.js --no-open --port 3939` (background), then `GET /healthz` → `{"status":"ok"}`; connect an MCP `Client` over `StreamableHTTPClientTransport` to `http://127.0.0.1:3939/mcp` and call `get_canvas_state` → success. Stop the process.
-
-**Acceptance criteria:**
-- [ ] Server boots; `/healthz` ok; `/mcp` initialize + tool call works over HTTP.
-- [ ] WS bridge broadcasts, performs export round-trip, enforces loop guard (tested).
-- [ ] CLI parses flags, selects a free port, prints Canvas + MCP URLs.
-
-**Rollback/safety note:** Bind to `127.0.0.1` only. If port logic misbehaves, hard-set `--port`. Web app can be a placeholder here.
-
-### Milestone M5: Browser app (React + Excalidraw) with live sync + export
-**Goal:** The real canvas — Excalidraw mounted, applying server scenes, echoing human edits, answering export requests. Completes the visible loop.
-**Files to create or change:**
-- `index.html`, `src/web/{main.tsx,CanvasApp.tsx,wsClient.ts,exportImage.ts}`.
-
-**Reference patterns or docs to inspect first:**
-- Excalidraw `excalidrawAPI` prop, `updateScene({elements,appState,captureUpdate})`, `onChange`, `exportToBlob`; required CSS import `@excalidraw/excalidraw/index.css`.
-
-**Implementation steps:**
-1. `wsClient.ts`: connect to `/ws`, auto-reconnect; on open send `hello`; dispatch `scene:set`/`export:request`; expose `sendSceneChanged`, `sendExportResult`.
-2. `exportImage.ts`: `exportToBlob({elements,appState,files,mimeType:'image/png',exportPadding})` → strip the `data:` prefix → base64.
-3. `CanvasApp.tsx`: mount `<Excalidraw excalidrawAPI initialData onChange>`; apply `scene:set` via `updateScene` (`captureUpdate:'IMMEDIATELY'`, set `applyingRemote`); debounce `onChange`→`scene:changed` (skip while `applyingRemote`); handle `export:request`→`sendExportResult`; render a status bar (canvas type, MCP URL, WS state).
-4. `main.tsx`/`index.html`: React root.
-
-**Tests/checks for this milestone:**
-- Run: `npm run build` (web + server).
-- Manual (see §11 Manual verification): start app, drive via MCP client, confirm shapes appear, screenshot returns PNG, save/open work, and a hand edit is reflected in `list_objects`.
-
-**Acceptance criteria:**
-- [ ] Browser shows Excalidraw; agent `create_object`/`draw_*` appear live.
-- [ ] `screenshot` returns a non-empty PNG of the scene.
-- [ ] A human edit changes the server scene (visible via `list_objects`).
-- [ ] `npm run build` produces `dist/web` + `dist` server output.
-
-**Rollback/safety note:** Web is isolated under `src/web`; if Excalidraw integration breaks, the server/MCP layers (M1–M4) still pass their tests. Verify `restoreElements` behavior learned in M2 informs binding handling.
-
-### Milestone M6: Excalidraw-specific tools (incl. create_flowchart)
-**Goal:** High-value Excalidraw constructs beyond the baseline.
-**Files to create or change:**
-- `src/plugins/excalidraw/{tools.ts,flowchart.ts}`, `tests/mcp-excalidraw.test.ts`.
-
-**Reference patterns or docs to inspect first:**
-- §6 tool contracts; arrow binding fields; container-bound text; §6 `create_flowchart` layout.
-
-**Implementation steps:**
-1. `tools.ts`: register `draw_rectangle/ellipse/diamond/line`, `draw_arrow` (resolve `start`/`end` element ids → bindings + update `boundElements`), `add_text` (standalone or `containerId` label), `create_frame` (set `frameId` on children), `group_objects` (shared `groupId`).
-2. `flowchart.ts`: deterministic layout; `create_flowchart` creates node shapes (+labels) then bound edge arrows; returns id maps.
-3. `tests/mcp-excalidraw.test.ts`: via in-memory `Client`, assert each tool produces the expected element(s); for `draw_arrow`/`create_flowchart` assert bindings reference real ids and `boundElements` updated.
-
-**Tests/checks for this milestone:**
-- Run: `npm test` → `mcp-excalidraw` passes.
-- Manual: `create_flowchart` renders connected boxes with arrows in the browser.
-
-**Acceptance criteria:**
-- [ ] All Excalidraw-specific tools callable and tested.
-- [ ] Bound arrows reference existing elements; flowchart wires edges.
-
-**Rollback/safety note:** Additive to M3's registration; if bindings render poorly, fall back to browser-side `convertToExcalidrawElements` (Risk register) without changing tool signatures.
-
-### Milestone M7: Hardening — errors, edge cases, screenshot-to-file, docs
-**Goal:** Production-minded robustness and complete docs.
-**Files to create or change:**
-- `src/server/workspace.ts` (screenshot file write), `src/mcp/baselineTools.ts` (error paths), `README.md` (final), `docs/architecture.md`, `tests/*` (edge cases).
-
-**Implementation steps:**
-1. Finalize error messages: missing id, no connected client, export timeout, path outside workspace, unknown `--canvas`.
-2. `screenshot` writes PNG to workspace when `path` given (decode base64) and returns absolute path.
-3. Finalize `README.md` (§9) and `docs/architecture.md`.
-4. Add edge-case tests (empty scene state, delete missing id, open malformed JSON).
-
-**Tests/checks for this milestone:**
-- Run: `npm run typecheck && npm run lint && npm test && npm run build` → all green.
-
-**Acceptance criteria:**
-- [ ] Clear, tested error behavior across tools.
-- [ ] `screenshot --path` writes a real PNG file.
-- [ ] README instructions match reality; full verification suite passes.
-
-**Rollback/safety note:** Hardening only; each change is independently testable.
-
-## 8. `AGENTS.md` content
-
-~~~markdown
-# AGENTS.md
-
-## Project purpose
-
-Agentic Canvas is a local-first, browser-based visual canvas that an AI agent controls through a local MCP server. The first canvas plugin embeds Excalidraw. A single `npx agentic-canvas` process serves the browser app, hosts an MCP server over Streamable HTTP, and syncs the canvas to the browser over WebSocket.
-
-## Working rules
-
-- Make the smallest correct change.
-- Keep the first version simple; follow the stack and structure in `PLAN.md`.
-- Do not introduce new dependencies without a clear reason.
-- The Node server must NOT import `@excalidraw/excalidraw`; all Excalidraw runtime API usage lives in `src/web`.
-- Add or update tests for behavior changes.
-- Run the required verification commands before reporting completion.
-- Do not add features listed as Out of scope in `PLAN.md` (no auth, no DB, no stdio transport, no second plugin).
-
-## Commands
-
-- Install: `npm install`
-- Run locally: `npm run build && npm start -- --canvas excalidraw`  (dev: `npm run dev`)
-- Test: `npm test`
-- Lint: `npm run lint`   (fix: `npm run format`)
-- Typecheck: `npm run typecheck`
-- Build: `npm run build`
-
-## Project conventions
-
-- Source code lives in `src/` (`cli`, `server`, `mcp`, `core`, `plugins`, `web`, `shared`).
-- Tests live in `tests/`.
-- The WS + scene wire contract lives in `src/shared/protocol.ts` (imported by Node AND the web bundle).
-- Keep modules small and purpose-specific. Prefer explicit error handling (return `{ isError: true }` from tools) over silent failure.
-- Server logs to stderr only; keep stdout clean.
-
-## Definition of done
-
-- The app runs locally via `npm start` and opens a working Excalidraw canvas.
-- The first-version scope in `PLAN.md` is implemented (baseline + Excalidraw MCP tools, save/open/screenshot, live sync).
-- Relevant tests pass; `npm run typecheck` and `npm run lint` are clean.
-- `README.md` explains setup, usage, and verification, and its commands work.
-~~~
-
-## 9. README requirements
-
-`README.md` must include:
-- **Name & description:** Agentic Canvas — a local-first visual canvas an AI agent drives via a local MCP server; first plugin embeds Excalidraw.
-- **Prerequisites:** Node.js ≥ 20, npm; a modern browser; an MCP-capable client (e.g. Claude Code/Desktop).
-- **Setup:** `npm install` then `npm run build`.
-- **Run:** `npm start -- --canvas excalidraw` (or `npx agentic-canvas`). Document flags `--port`, `--host`, `--workspace`, `--no-open`.
-- **Test/build:** `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`.
-- **Connect an MCP client (example):** `claude mcp add --transport http agentic-canvas http://127.0.0.1:3333/mcp`.
-- **Usage example + expected output:** call `draw_rectangle {x:100,y:100,width:200,height:120,text:"Hello"}` → a labeled rectangle appears in the browser; `screenshot` → returns a PNG; `save_canvas {path:"demo.excalidraw"}` → writes the file; `clear_canvas` then `open_canvas {path:"demo.excalidraw"}` → restores it.
-- **Manual verification path (UI):** the §11 manual loop.
-- **Configuration/env:** §10 (none required; optional overrides).
-- **Project structure summary:** condensed §4 tree.
-- **Known limitations (v1):** HTTP transport only (no stdio); single browser session; full-scene sync (no diffing); screenshot requires a connected browser; Excalidraw subset only (no images/rich text/libraries).
-
-## 10. Environment and configuration
-
-`No environment variables are required for the first version.` Optional overrides (flags take precedence) may be supported for convenience:
-
-| Variable/config | Required? | Default | Purpose | Where used |
-|---|---:|---|---|---|
-| `AGENTIC_CANVAS_PORT` | No | `3333` | Default server port | `src/cli/index.ts` |
-| `AGENTIC_CANVAS_HOST` | No | `127.0.0.1` | Bind host (keep loopback) | `src/cli/index.ts` |
-| `AGENTIC_CANVAS_WORKSPACE` | No | current working dir | Root for save/open/screenshot | `src/cli/index.ts`, `src/server/workspace.ts` |
-
-No secrets and no `.env` are needed. Add `.env` and `dist/` to `.gitignore` regardless. Validate port/workspace at startup and exit non-zero with a clear message on failure.
-
-## 11. Test and verification plan
+| `save_canvas` (jsoncanvas) | `{ path:"research-map" }` | Writes `research-map.canvas` | Reject non-`.canvas` extension |
+| `open_canvas` (jsoncanvas) | `.canvas` path | Validate; default missing arrays; preserve order | Reject dangling edges/non-integer geometry unless `repair:true` |
+| `connect_cards` | from/to node IDs | Edge with `toEnd:"arrow"` default | Error if a node is missing or exact duplicate edge |
+| `apply_jsoncanvas_patch` | bulk ops | All-or-nothing in a transaction; validate before commit | On any failure, scene unchanged; return error |
+| `GET /canvas-info` | — | `{ canvas, mcpUrl, wsUrl }` | — |
+| WS `scene:set`/`scene:changed` | — | `{ canvas, version/baseVersion, scene, appState? }`; `scene` = `{nodes,edges}` (jsoncanvas) or `{elements,files}` (excalidraw) | Stale `baseVersion` → server resends authoritative scene |
+
+### Compatibility expectations
+- Universal MCP tool names/behavior unchanged for Excalidraw. Excalidraw-shape tools remain available under Excalidraw only.
+
+## 7. Test and verification plan
 
 ### Required checks
-1. `npm install`
-   - Purpose: install dependencies.
-   - Expected result: completes; `@modelcontextprotocol/sdk` resolves to a 1.x version.
-2. `npm run typecheck`
-   - Purpose: static type safety across CLI/server/web.
-   - Expected result: no type errors.
-3. `npm run lint`
-   - Purpose: Biome lint/format check.
-   - Expected result: no errors.
-4. `npm test`
-   - Purpose: unit + integration suite.
-   - Expected result: all suites pass (`elements`, `adapter`, `plugin-baseline`, `mcp-baseline`, `mcp-excalidraw`, `wsBridge`, `workspace`).
-5. `npm run build`
-   - Purpose: produce `dist/web` (Vite) and `dist` server/CLI (tsup).
-   - Expected result: both build; `dist/cli/index.js` has a Node shebang.
-6. `node dist/cli/index.js --no-open --port 3939` (then probe, then stop)
-   - Purpose: smoke-test the built server.
-   - Expected result: `GET http://127.0.0.1:3939/healthz` → `{"status":"ok",...}`; an MCP `Client` over Streamable HTTP can `initialize` and call `get_canvas_state`.
+1. `npm run verify`
+   - Purpose: typecheck + Biome lint + full Vitest suite.
+   - Expected result: clean after every milestone.
+2. `npm run build`
+   - Purpose: confirm web bundle (incl. `@xyflow/react`) and server build.
+   - Expected result: `dist/web` + `dist/cli/index.js` produced.
 
 ### Targeted tests
-- `tests/mcp-baseline.test.ts` — every baseline tool over `InMemoryTransport`.
-- `tests/mcp-excalidraw.test.ts` — Excalidraw tools incl. `create_flowchart` bindings.
-- `tests/wsBridge.test.ts` — broadcast, export round-trip, timeout, loop guard.
-- `tests/elements.test.ts` — `buildElement` survives `restoreElements` (jsdom).
-- `tests/workspace.test.ts` — save/open round trip + traversal rejection.
+- `npm test -- jsoncanvas-format jsoncanvas-validation` — M1 model/format/validation.
+- `npm test -- jsoncanvas-adapter jsoncanvas-layout` — M2 adapter/layout.
+- `npm test -- jsoncanvas-tools` — M3 tools + atomic patch.
+- `npm test -- jsoncanvas-ws-roundtrip` — M4 server WS round-trip.
+- `npm test -- wsBridge canvasController mcp-baseline plugin-baseline` — Excalidraw regression guard after M0.
 
-### Manual verification
-- Step: `npm run build && npm start -- --canvas excalidraw` → browser opens to the canvas.
-- Step: `claude mcp add --transport http agentic-canvas http://127.0.0.1:3333/mcp`, then from the client call `draw_rectangle`, `add_text`, `draw_arrow` (bound), `create_flowchart`.
-- Expected observation: shapes/labels/arrows/flowchart appear live in the browser.
-- Step: call `save_canvas {path:"demo.excalidraw"}`, then `clear_canvas`, then `open_canvas {path:"demo.excalidraw"}`.
-- Expected observation: canvas clears, then the saved scene reloads; `demo.excalidraw` exists in the workspace.
-- Step: call `screenshot`.
-- Expected observation: a PNG of the current scene is returned (and written if `path` provided).
-- Step: drag/edit a shape by hand, then call `list_objects`.
-- Expected observation: the listing reflects the human edit (server stayed in sync).
+### Manual verification (spec §23)
+- Step: `npm run build && npm start -- --canvas jsoncanvas --workspace <tmp>`; connect MCP; `add_text_card` ×3; `connect_cards` ×2; drag a card; `get_object`; edit text; `create_group`; `auto_layout_cards`; `save_canvas {path:"demo"}`; `clear_canvas`; `open_canvas {path:"demo"}`; `screenshot`.
+- Expected observation: cards/edges appear live; drag/edit reflected in `get_object`; `demo.canvas` exists; scene restores; PNG returned.
 
 ### Verification fallback
-If a command is unavailable, too slow, or fails on environment setup, the implementation agent should: (1) report the exact command and failure; (2) run the nearest narrower check (e.g. a single test file); (3) explain what remains unverified (especially anything needing a live browser); (4) not claim success for unverified behavior.
+If a command fails: report the exact command + failure; run the nearest narrower test (e.g. a single `jsoncanvas-*` file); state what remains unverified (e.g. browser interactions if no display); do not claim success for unverified behavior.
 
-### Quality bar
-Do not claim completion unless: the project installs; `npm start` runs and serves a working canvas; baseline + Excalidraw tools and sync are covered by passing tests; typecheck and lint are clean; and the README instructions work.
-
-## 12. Implementation agent execution instructions
+## 8. Implementation agent execution instructions
 
 ~~~text
-Create the new project described in PLAN.md from scratch.
+Implement the work described in PLAN.md.
 
-Follow the milestones in order. Before editing, inspect the current directory. If files already exist (e.g. PLAN.md, the two prompt files), preserve user work and adapt minimally. If the directory is otherwise empty, create the structure in PLAN.md.
+Follow milestones M0→M5 in order. Before editing, inspect the files listed in each milestone and confirm the plan still matches the repository. If the repo has changed, adapt minimally and explain the deviation.
 
 Constraints:
-- Implement the smallest coherent first version.
-- Follow the stack, structure, and scope in PLAN.md.
-- Pin @modelcontextprotocol/sdk to ^1.29.0 and use the v1 subpath imports; do not switch to the v2 split packages unless v1 fails to install (then apply the mapping in PLAN.md §3).
-- The Node server must NOT import @excalidraw/excalidraw; all Excalidraw runtime API usage stays in src/web.
-- Create AGENTS.md and README.md using the content/spec in PLAN.md.
-- Do not add features listed as Out of scope (no auth, no DB, no stdio transport, no second plugin, no telemetry).
-- Do not introduce extra dependencies beyond those listed unless required for in-scope behavior.
-- Do not create cloud resources, real secrets, paid services, or external accounts.
-- Add tests for core behavior; run the verification commands in PLAN.md §11.
-- If a verification command fails, diagnose whether it is your change, missing setup, or an environment limitation.
-- Do not mark the task complete unless the acceptance criteria are met; otherwise clearly state what remains unverified.
+- Make the smallest correct change; do M0 (plugin-neutral core) first and keep ALL existing tests green before adding any jsoncanvas code.
+- Follow existing repo conventions (ESM `.js` import suffixes, Biome formatting, Vitest patterns, `{ isError:true }` tool errors, stdout clean).
+- The Node server/core/mcp code must NOT import `@excalidraw/excalidraw` or `@xyflow/react`; renderer libs live only under `src/web`.
+- Only new dependency permitted: `@xyflow/react` in devDependencies (M4).
+- Do not change Excalidraw tool names, schemas, or behavior; do not write Agentic Canvas metadata into `.canvas` files.
+- Add/update tests where PLAN.md specifies; run `npm run verify` after each milestone.
+- If a verification command fails, diagnose whether it is your change or pre-existing/environment.
+- Do not mark complete unless acceptance criteria are met or clearly state what remains unverified.
 
-At the end, provide:
-1. Summary of what was created.
-2. Files created or changed.
-3. How to run the project locally.
-4. Tests/checks run and results.
-5. Any deviations from PLAN.md.
-6. Remaining risks or follow-ups, if any.
+At the end provide: 1) summary of changes, 2) files changed, 3) tests/checks run + results, 4) deviations from PLAN.md, 5) remaining risks/follow-ups.
 ~~~
 
-## 13. Acceptance criteria
+## 9. Acceptance criteria
 
-- [ ] Repository scaffold is created (M1).
-- [ ] `AGENTS.md` created with project-specific guidance (§8).
-- [ ] `README.md` explains setup, usage, testing, and limitations (§9).
-- [ ] The project installs (`npm install`).
-- [ ] The project runs locally (`npm start` serves a working Excalidraw canvas).
-- [ ] Baseline MCP tools implemented and tested (`get_canvas_state`, `list_objects`, `get_object`, `create_object`, `update_object`, `delete_object`, `clear_canvas`, `save_canvas`, `open_canvas`, `screenshot`).
-- [ ] Excalidraw-specific tools implemented and tested (`draw_*`, `add_text`, `create_frame`, `group_objects`, `create_flowchart`).
-- [ ] Live browser↔server sync works (agent writes appear; human edits reflected back).
-- [ ] `save`/`open`/`screenshot` work locally.
-- [ ] Out-of-scope functionality was NOT added (no auth/DB/stdio/second plugin/telemetry).
-- [ ] `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` pass (or failures explained).
-- [ ] No unnecessary dependencies, services, or infrastructure introduced.
-- [ ] The final project matches this brief.
+- [ ] `npm run verify` passes.
+- [ ] `--canvas jsoncanvas` starts without Excalidraw deps leaking into Node-only code; `--canvas excalidraw` unchanged.
+- [ ] Universal MCP tools work for both canvases; JSON Canvas-specific tools work.
+- [ ] `.canvas` files round-trip without losing required fields and contain no Agentic Canvas metadata.
+- [ ] Browser↔server sync works both directions; screenshot and selection work for jsoncanvas.
+- [ ] README + AGENTS.md updated; AGENTS.md no longer forbids a second plugin.
+- [ ] Excalidraw remains unaffected (all prior tests green).
 
-## 14. Open questions and assumptions
+## 10. Open questions and assumptions
 
 ### Blocking questions
 - None.
 
 ### Non-blocking assumptions
-- Assumption: Package/CLI name is `agentic-canvas`; default port `3333`, host `127.0.0.1`.
-  - Why reasonable: matches the brief's example; loopback is the safe local default.
-  - How to verify/expose: implement as flags/env (§6/§10) so they're trivially changeable.
-- Assumption: `@excalidraw/excalidraw` export/restore utilities are only reliably usable in the browser (DOM-dependent); the Node server builds elements by hand and the browser normalizes via `restore`.
-  - Why reasonable: server-side DOM usability is undocumented/unverified; building plain JSON keeps Node DOM-free.
-  - How to verify/expose: the M2 jsdom test for `restoreElements`; the browser-side `convertToExcalidrawElements` fallback (Risk register) is available without changing tool signatures.
-- Assumption: A single browser session is the normal case; broadcast supports multiple viewers but there is no conflict-resolution UI.
-  - Why reasonable: local single-user product.
-  - How to verify/expose: full-scene last-write-wins sync; documented as a known limitation.
-- Assumption: MCP SDK v1.x is the deterministic target; v2 split packages are documented but not used.
-  - Why reasonable: v1 imports are stable and well-covered; reduces install/API risk.
-  - How to verify/expose: pin `^1.29.0`; §3 note gives the v2 mapping if needed.
-- Assumption: `screenshot` requires a connected browser (no headless renderer in v1).
-  - Why reasonable: avoids a heavy Playwright/Puppeteer dependency; the browser is open during normal use.
-  - How to verify/expose: tool returns a clear error when no client is connected; headless export is Future Work.
+- Assumption: generic `structuredClone` is safe for cloning Excalidraw + JSON Canvas scenes.
+  - Evidence: scenes are plain JSON data; `cloneScene`/`cloneElement` do no special object wiring beyond deep copy.
+  - Verify: `tests/canvasController.test.ts` + Excalidraw plugin tests pass after the switch.
+- Assumption: gating shape tools on `typeof plugin.createObject === "function"` correctly scopes them to Excalidraw.
+  - Evidence: only Excalidraw implements the shape model; jsoncanvas intentionally omits `createObject`.
+  - Verify: jsoncanvas MCP test asserts `create_object`/`find_objects` are not registered.
+- Assumption: `@xyflow/react` belongs in devDependencies (like React/Excalidraw).
+  - Evidence: published package ships prebuilt `dist/web`; `tsup` externalizes runtime deps only.
+  - Verify: `npm run build` + `npm run smoke:package` succeed.
 
-## 15. Risk register
+## 11. Risk register
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---:|---:|---|
-| Hand-built Excalidraw elements (esp. arrow bindings/labels) don't perfectly match Excalidraw's expectations | Medium | Medium | Browser `updateScene` runs `restore({repairBindings:true})`; M2 round-trip test; fallback: build via `convertToExcalidrawElements` in the browser and echo elements back to the server (tool signatures unchanged). |
-| MCP Streamable-HTTP session/transport wiring is fiddly (v1 vs v2 API drift) | Medium | Medium | Pin v1.x; follow the SDK Express example; smoke-test `initialize` + a tool call in M4; §3 documents the v2 mapping. |
-| WS echo loop or lost sync after reconnect | Medium | Medium | Server-authoritative + version counter; `applyingRemote` guard; never rebroadcast to origin; full `scene:set` on `hello`; covered by `wsBridge.test.ts`. |
-| Excalidraw `restore`/export not usable in Node/jsdom | Medium | Low | Keep all Excalidraw runtime usage in the browser; M2 test empirically checks jsdom; structural-validation fallback. |
-| `npx`/build ships without `dist/` or wrong bin shebang | Low | High | `files:["dist"]`, `prepare`/`prepublishOnly` build, tsup shebang banner; M5/M7 verify `node dist/cli/index.js`. |
-| Port already in use | Medium | Low | Auto-select next free port and print the chosen URL; `--port` override. |
-| Arbitrary file write via `save`/`open` path | Low | High | All file I/O confined to the workspace root; reject traversal/abs-escape; tested in `workspace.test.ts`. |
-| Large scenes make full-scene sync slow | Low | Low | Acceptable for v1; diff/patch sync noted as Future Work. |
+| M0 type changes ripple widely and break Excalidraw | High | High | Do M0 as an isolated milestone; gate on full existing suite green before M1+ |
+| Neutral WS protocol regresses Excalidraw sync | Medium | High | Update `protocol.ts`+`wsBridge.ts`+web together; rely on `wsBridge`/`web-scene*` tests |
+| React Flow state leaks into `.canvas` | Medium | High | Keep mapping browser-only; serialize only native `{nodes,edges}`; validate on every browser change |
+| Human edits produce invalid JSON Canvas | Medium | Medium | Validate (and optionally repair) before committing browser scenes |
+| Auto-layout overwrites human layout | Low | Medium | Layout is explicit (a tool), never automatic after edits |
+| New dependency increases bundle/footprint | Low | Low | devDependency only; confirmed by smoke/dry-run |
 
-## 16. Future work
+## 12. Final instruction to an implementation agent
 
-| Future item | Why deferred |
-|---|---|
-| stdio MCP transport (thin proxy to the running HTTP server) | HTTP covers v1 clients; keeps the first version single-process and simple. |
-| Second canvas plugin (e.g. tldraw) | One plugin proves the interface; more is scope creep. |
-| Headless/server-side screenshot (Playwright/Puppeteer) | Heavy dependency; browser-driven export suffices while a browser is open. |
-| Scene diffing / incremental sync / CRDT collaboration | Full-scene last-write-wins is enough for local single-user v1. |
-| Excalidraw images/embeds, rich text, libraries, custom fonts | Larger surface; v1 favors a small reliable subset. |
-| Persistence beyond explicit save/open (autosave, history) | Not needed to prove the loop. |
-| Auth, accounts, multi-user, cloud hosting, telemetry | Explicitly out of scope for a local-first tool. |
-| Plugin discovery/marketplace/dynamic loading | A simple internal interface is sufficient for v1. |
-
-## 17. Final instruction to an implementation agent
-
-Build the project milestone by milestone, validating after each meaningful change with the §11 commands. Keep the Node server free of `@excalidraw/excalidraw` imports and keep all file I/O inside the workspace sandbox. If the actual directory contents conflict with this plan, preserve existing user work, make the smallest reasonable adaptation, and report the deviation in your final summary. Stop when the §13 acceptance criteria are met (or clearly state what remains unverified and why).
+Proceed milestone by milestone, validating with `npm run verify` after each meaningful change. M0 must leave Excalidraw behavior and tests untouched before any jsoncanvas code is added. If the plan conflicts with actual repository evidence, trust the repository, make the smallest reasonable adaptation, and report the deviation in the final summary.

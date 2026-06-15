@@ -2,9 +2,10 @@
 
 Agentic Canvas has an internal canvas plugin boundary. A plugin owns the native scene
 format for one canvas engine and maps that format to the normalized objects used by
-baseline MCP tools. The current application ships only the `excalidraw` plugin.
+baseline MCP tools. The current application ships the `excalidraw` and `jsoncanvas`
+plugins.
 
-This is a static, in-repo plugin model. There is no plugin marketplace, remote
+This is a static, in-repo runtime plugin model. There is no dynamic plugin marketplace, remote
 registry, runtime loader, authentication layer, database, telemetry system, or stdio
 transport.
 
@@ -82,6 +83,8 @@ should still pass through the existing baseline MCP tests once the plugin is wir
    - `createObject`, `updateObject`, `deleteObjects`, `clear`: mutate the scene passed
      by `CanvasController`.
    - `serialize` and `deserialize`: round-trip the complete scene for save/open.
+   - `getCapabilities`: advertise plugin-specific tools and preferred workflows
+     for MCP clients and Codex skills.
    - `registerTools`: register only plugin-specific MCP tools.
 
 4. Map native objects to normalized objects.
@@ -131,16 +134,14 @@ should still pass through the existing baseline MCP tests once the plugin is wir
 
 7. Wire the plugin statically.
 
-   The current server creates Excalidraw directly. A future plugin must update the
-   static selection points:
+   A future plugin must update the static selection points:
 
-   - CLI validation and help text in `src/cli/index.ts`.
-   - `StartServerOptions.canvas` and plugin factory selection in
-     `src/server/httpServer.ts`.
-   - Any tests that assume only `excalidraw` exists.
+   - The canvas plugin registry.
+   - Browser renderer selection under `src/web`.
+   - Any tests or docs that list supported canvas names.
 
-   Do not add dynamic loading, remote package loading, or a plugin registry unless
-   the project scope explicitly changes.
+   Do not add dynamic loading, remote package loading, or external marketplace
+   loading unless the project scope explicitly changes.
 
 8. Add browser support if the engine is not Excalidraw.
 
@@ -154,10 +155,9 @@ should still pass through the existing baseline MCP tests once the plugin is wir
 Baseline tools are registered for every plugin:
 
 - `get_canvas_state`
+- `get_canvas_capabilities`
 - `list_objects`
 - `get_object`
-- `create_object`
-- `update_object`
 - `delete_object`
 - `clear_canvas`
 - `save_canvas`
@@ -165,9 +165,17 @@ Baseline tools are registered for every plugin:
 - `screenshot`
 - `get_selected_objects`
 - `select_objects`
-- `set_canvas_background`
 - `undo`
 - `redo`
+
+Generic shape-object tools are registered only when a plugin implements generic
+object creation and updates:
+
+- `find_objects`
+- `create_object`
+- `apply_canvas_patch`
+- `update_object`
+- `set_canvas_background`
 
 Plugin tools are optional and engine-specific. Excalidraw currently adds tools such
 as `draw_rectangle`, `draw_arrow`, `create_frame`, `group_objects`,
@@ -175,6 +183,8 @@ as `draw_rectangle`, `draw_arrow`, `create_frame`, `group_objects`,
 
 Use baseline tools for common object operations. Add plugin tools only when they
 provide a better engine-native workflow or a higher-level operation.
+Advertise those plugin tools from `getCapabilities` so clients can choose the
+right workflow for the active canvas.
 Plugin authors do not implement `get_selected_objects` or `select_objects` on the
 Node side; browser code reads or applies selected ids and the shared baseline tools
 resolve ids through `CanvasController`.

@@ -1,7 +1,7 @@
 export const MCP_INSTRUCTIONS = [
-  "Agentic Canvas is a shared Excalidraw canvas controlled through MCP.",
-  "Inspect the scene with get_canvas_state and find_objects before editing an existing diagram.",
-  "Prefer high-level tools over many primitive calls: use apply_canvas_patch for multi-object changes, connect_objects for relationships, and auto_layout_objects or align_distribute_objects for legibility cleanup.",
+  "Agentic Canvas is a shared visual canvas controlled through MCP.",
+  "Inspect the scene with get_canvas_state before editing, then call get_canvas_capabilities when choosing canvas-specific tools.",
+  "Use the tools advertised in get_canvas_capabilities for the active canvas type instead of assuming one canvas engine.",
   "Use get_object before destructive updates when an id is uncertain. Do not call clear_canvas unless the user explicitly asks to erase the whole scene.",
   "Save important results with save_canvas.",
 ].join(" ");

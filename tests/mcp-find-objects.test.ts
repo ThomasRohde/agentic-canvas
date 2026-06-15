@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ExcalidrawElement } from "../src/core/scene.js";
 import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { CanvasController } from "../src/server/canvasController.js";
@@ -50,7 +51,9 @@ describe("find_objects MCP tool", () => {
       text: "Beta",
     });
     controller.mutateScene((scene) => {
-      const rectangleElement = scene.elements.find((element) => element.id === rectangle.id);
+      const rectangleElement = (scene.native as { elements: ExcalidrawElement[] }).elements.find(
+        (element) => element.id === rectangle.id,
+      );
       if (!rectangleElement) {
         throw new Error("rectangle element missing");
       }

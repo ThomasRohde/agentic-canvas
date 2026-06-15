@@ -1,8 +1,10 @@
 import nodePath from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import type { CanvasPlugin } from "../core/plugin.js";
 import type {
   CanvasObject,
+  CanvasObjectDetail,
   CanvasObjectType,
   CanvasStyle,
   CreateObjectSpec,
@@ -11,6 +13,7 @@ import type {
 import type { CanvasController } from "../server/canvasController.js";
 import type { Workspace } from "../server/workspace.js";
 import { readPackageInfo } from "../shared/packageInfo.js";
+import { getCanvasCapabilities } from "./capabilities.js";
 import {
   applyCanvasPatchShape,
   canvasObjectTypeSchema,
@@ -35,6 +38,7 @@ export interface SelectionSetResult {
 }
 
 export interface BaselineToolContext {
+  plugin: CanvasPlugin;
   controller: CanvasController;
   workspace: Workspace;
   clientsConnected(): number;
@@ -64,11 +68,21 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
   );
 
   server.registerTool(
+    "get_canvas_capabilities",
+    {
+      description:
+        "Describe the active canvas type, supported tool groups, preferred workflows, and file extension.",
+      inputSchema: {},
+    },
+    async () => textResult(getCanvasCapabilities(context.plugin)),
+  );
+
+  server.registerTool(
     "list_objects",
     {
       description: "List normalized canvas objects.",
       inputSchema: {
-        type: canvasObjectTypeSchema.optional(),
+        type: z.string().optional(),
       },
     },
     async ({ type }) =>
@@ -86,56 +100,6 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
     async ({ id }) => {
       const object = context.controller.getObject(id);
       return object ? textResult(object) : errorResult(`Object not found: ${id}`);
-    },
-  );
-
-  server.registerTool(
-    "find_objects",
-    {
-      description: "Find normalized canvas objects by text, type, geometry, style, or metadata.",
-      inputSchema: findObjectsShape,
-    },
-    async (input) => findObjects(context, input as FindObjectsInput),
-  );
-
-  server.registerTool(
-    "create_object",
-    {
-      description: "Create a normalized canvas object.",
-      inputSchema: createObjectShape,
-    },
-    async (input) => {
-      try {
-        const object = context.controller.createObject(input as CreateObjectSpec);
-        return textResult({ id: object.id });
-      } catch (error) {
-        return errorResult(error);
-      }
-    },
-  );
-
-  server.registerTool(
-    "apply_canvas_patch",
-    {
-      description: "Atomically apply ordered create, update, and delete operations to the canvas.",
-      inputSchema: applyCanvasPatchShape,
-    },
-    async (input) => applyCanvasPatch(context, input as ApplyCanvasPatchInput),
-  );
-
-  server.registerTool(
-    "update_object",
-    {
-      description: "Patch a normalized canvas object.",
-      inputSchema: updateObjectShape,
-    },
-    async ({ id, ...patch }) => {
-      try {
-        const object = context.controller.updateObject(id, patch as UpdateObjectPatch);
-        return object ? textResult({ id: object.id }) : errorResult(`Object not found: ${id}`);
-      } catch (error) {
-        return errorResult(error);
-      }
     },
   );
 
@@ -169,14 +133,17 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
   server.registerTool(
     "save_canvas",
     {
-      description: "Save the current canvas to a .excalidraw file inside the workspace.",
+      description: `Save the current canvas to a ${context.controller.fileExtension} file inside the workspace.`,
       inputSchema: {
         path: z.string().optional(),
       },
     },
     async ({ path }) => {
       try {
-        const normalizedPath = normalizeToolPath(path ?? "canvas.excalidraw", ".excalidraw");
+        const normalizedPath = normalizeToolPath(
+          path ?? `canvas${context.controller.fileExtension}`,
+          context.controller.fileExtension,
+        );
         const written = await context.workspace.writeText(
           normalizedPath,
           context.controller.serialize(),
@@ -189,36 +156,21 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
   );
 
   server.registerTool(
-    "set_canvas_background",
-    {
-      description: "Set the canvas background color.",
-      inputSchema: {
-        color: colorSchema,
-      },
-    },
-    async ({ color }) => {
-      context.controller.mutateScene((scene) => {
-        scene.appState.viewBackgroundColor = color;
-      });
-      return textResult({ viewBackgroundColor: color });
-    },
-  );
-
-  server.registerTool(
     "open_canvas",
     {
-      description: "Open a .excalidraw file from inside the workspace.",
+      description: `Open a ${context.controller.fileExtension} file from inside the workspace.`,
       inputSchema: {
         path: z.string(),
+        repair: z.boolean().optional(),
       },
     },
-    async ({ path }) => {
+    async ({ path, repair }) => {
       let requestedPath = path;
       try {
-        const normalizedPath = normalizeToolPath(path, ".excalidraw");
+        const normalizedPath = normalizeToolPath(path, context.controller.fileExtension);
         requestedPath = normalizedPath;
         const file = await context.workspace.readText(normalizedPath);
-        context.controller.deserialize(file.text);
+        context.controller.deserialize(file.text, { repair });
         return textResult({
           path: file.path,
           objectCount: context.controller.listObjects().length,
@@ -268,7 +220,7 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
     async () => {
       try {
         const selection = await context.requestSelection();
-        const objects: CanvasObject[] = [];
+        const objects: CanvasObjectDetail[] = [];
         const missingIds: string[] = [];
         for (const id of selection.selectedIds) {
           const object = context.controller.getObject(id);
@@ -347,6 +299,75 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
   );
 }
 
+export function registerShapeObjectTools(server: McpServer, context: BaselineToolContext): void {
+  server.registerTool(
+    "find_objects",
+    {
+      description: "Find normalized canvas objects by text, type, geometry, style, or metadata.",
+      inputSchema: findObjectsShape,
+    },
+    async (input) => findObjects(context, input as FindObjectsInput),
+  );
+
+  server.registerTool(
+    "create_object",
+    {
+      description: "Create a normalized canvas object.",
+      inputSchema: createObjectShape,
+    },
+    async (input) => {
+      try {
+        const object = context.controller.createObject(input as CreateObjectSpec);
+        return textResult({ id: object.id });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "apply_canvas_patch",
+    {
+      description: "Atomically apply ordered create, update, and delete operations to the canvas.",
+      inputSchema: applyCanvasPatchShape,
+    },
+    async (input) => applyCanvasPatch(context, input as ApplyCanvasPatchInput),
+  );
+
+  server.registerTool(
+    "update_object",
+    {
+      description: "Patch a normalized canvas object.",
+      inputSchema: updateObjectShape,
+    },
+    async ({ id, ...patch }) => {
+      try {
+        const object = context.controller.updateObject(id, patch as UpdateObjectPatch);
+        return object ? textResult({ id: object.id }) : errorResult(`Object not found: ${id}`);
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "set_canvas_background",
+    {
+      description: "Set the canvas background color.",
+      inputSchema: {
+        color: colorSchema,
+      },
+    },
+    async ({ color }) => {
+      context.controller.mutateScene((scene) => {
+        const appState = scene.appState as { viewBackgroundColor?: string };
+        appState.viewBackgroundColor = color;
+      });
+      return textResult({ viewBackgroundColor: color });
+    },
+  );
+}
+
 function textResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
@@ -361,7 +382,7 @@ function errorResult(error: unknown) {
   };
 }
 
-function normalizeToolPath(userPath: string, expectedExtension: ".excalidraw" | ".png"): string {
+function normalizeToolPath(userPath: string, expectedExtension: string): string {
   const extension = nodePath.extname(userPath);
   if (!extension) {
     return `${userPath}${expectedExtension}`;

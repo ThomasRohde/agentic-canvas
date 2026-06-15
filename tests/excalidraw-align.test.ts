@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ExcalidrawElement } from "../src/core/scene.js";
 import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { planAlignDistribute } from "../src/plugins/excalidraw/layout.js";
@@ -148,7 +149,9 @@ describe("align_distribute_objects MCP tool", () => {
       height: 80,
     });
     controller.mutateScene((scene) => {
-      const lockedElement = scene.elements.find((element) => element.id === locked.id);
+      const lockedElement = (scene.native as { elements: ExcalidrawElement[] }).elements.find(
+        (element) => element.id === locked.id,
+      );
       if (!lockedElement) {
         throw new Error("locked element missing");
       }

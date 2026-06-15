@@ -1,0 +1,31 @@
+{
+  "nodes": [
+    {
+      "id": "card_a",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 360,
+      "height": 180,
+      "text": "A"
+    },
+    {
+      "id": "card_b",
+      "type": "text",
+      "x": 420,
+      "y": 0,
+      "width": 360,
+      "height": 180,
+      "text": "B"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_ab",
+      "fromNode": "card_a",
+      "toNode": "card_b",
+      "toEnd": "arrow",
+      "label": "leads to"
+    }
+  ]
+}

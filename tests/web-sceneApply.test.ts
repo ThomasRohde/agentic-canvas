@@ -4,39 +4,42 @@ import { applyRemoteSceneToCanvas } from "../src/web/sceneApply.js";
 
 const message: SceneSetMessage = {
   type: "scene:set",
+  canvas: "excalidraw",
   version: 7,
-  elements: [
-    {
-      id: "A",
-      index: "a1",
-      type: "rectangle",
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 50,
-      angle: 0,
-      strokeColor: "#000",
-      backgroundColor: "transparent",
-      fillStyle: "solid",
-      strokeWidth: 2,
-      strokeStyle: "solid",
-      roughness: 1,
-      opacity: 100,
-      groupIds: [],
-      frameId: null,
-      roundness: null,
-      seed: 1,
-      version: 1,
-      versionNonce: 1,
-      isDeleted: false,
-      boundElements: null,
-      updated: 1,
-      link: null,
-      locked: false,
-    },
-  ],
+  scene: {
+    elements: [
+      {
+        id: "A",
+        index: "a1",
+        type: "rectangle",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 50,
+        angle: 0,
+        strokeColor: "#000",
+        backgroundColor: "transparent",
+        fillStyle: "solid",
+        strokeWidth: 2,
+        strokeStyle: "solid",
+        roughness: 1,
+        opacity: 100,
+        groupIds: [],
+        frameId: null,
+        roundness: null,
+        seed: 1,
+        version: 1,
+        versionNonce: 1,
+        isDeleted: false,
+        boundElements: null,
+        updated: 1,
+        link: null,
+        locked: false,
+      },
+    ],
+    files: {},
+  },
   appState: { viewBackgroundColor: "#ffffff" },
-  files: {},
 };
 
 describe("applyRemoteSceneToCanvas", () => {
@@ -65,12 +68,12 @@ describe("applyRemoteSceneToCanvas", () => {
 
     expect(result).toEqual({ applied: "raw", requestedFullScene: true });
     expect(updateScene).toHaveBeenCalledWith({
-      elements: message.elements,
+      elements: sceneElements(message),
       appState: message.appState,
-      files: message.files,
+      files: {},
       captureUpdate: "immediately",
     });
-    expect(rememberAppliedScene).toHaveBeenCalledWith(message.elements);
+    expect(rememberAppliedScene).toHaveBeenCalledWith(sceneElements(message));
     expect(setAppliedVersion).toHaveBeenCalledWith(7);
     expect(setVisibleVersion).toHaveBeenCalledWith(7);
     expect(requestFullScene).toHaveBeenCalledTimes(1);
@@ -95,3 +98,7 @@ describe("applyRemoteSceneToCanvas", () => {
     expect(result).toEqual({ applied: "raw", requestedFullScene: false });
   });
 });
+
+function sceneElements(message: SceneSetMessage): unknown[] {
+  return (message.scene as { elements: unknown[] }).elements;
+}

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ExcalidrawElement } from "../src/core/scene.js";
 import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { CanvasController } from "../src/server/canvasController.js";
@@ -93,8 +94,8 @@ describe("apply_canvas_patch MCP tool", () => {
       expect(controller.currentVersion()).toBe(1);
 
       const arrow = controller.getObject(result.idMap.edge);
-      expect(arrow?.raw.startBinding?.elementId).toBe(result.idMap.source);
-      expect(arrow?.raw.endBinding?.elementId).toBe(result.idMap.target);
+      expect(rawElement(arrow)?.startBinding?.elementId).toBe(result.idMap.source);
+      expect(rawElement(arrow)?.endBinding?.elementId).toBe(result.idMap.target);
     } finally {
       await close();
     }
@@ -180,7 +181,7 @@ describe("apply_canvas_patch MCP tool", () => {
       expect(result.updated).toEqual([result.idMap.node]);
       expect(result.objects).toBeUndefined();
       expect(controller.getObject(result.idMap.node)?.x).toBe(40);
-      expect(controller.getObject(result.idMap.node)?.raw.boundElements).toContainEqual({
+      expect(rawElement(controller.getObject(result.idMap.node))?.boundElements).toContainEqual({
         id: expect.any(String),
         type: "text",
       });
@@ -440,4 +441,8 @@ function createServer(
     requestSelection: async () => ({ selectedIds: [] }),
     requestSetSelection: async (selectedIds) => ({ selectedIds }),
   });
+}
+
+function rawElement(object: { raw: unknown } | undefined): ExcalidrawElement | undefined {
+  return object?.raw as ExcalidrawElement | undefined;
 }

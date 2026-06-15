@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+## 0.5.0 - 2026-06-15
+
+- Added the `jsoncanvas` backend with plugin-neutral core scene handling, JSON Canvas `.canvas` validation/repair, semantic card/edge MCP tools, and a React Flow browser renderer.
+- Added `/canvas-info` and static canvas plugin registry support for selecting `excalidraw` or `jsoncanvas`.
+- Added `get_canvas_capabilities` so MCP clients and the bundled Codex plugin can discover canvas-specific tool workflows at runtime.
+- Added Claude Code and GitHub Copilot plugin manifests and marketplaces alongside the existing Codex plugin packaging.
+- Updated WebSocket scene sync to carry plugin-neutral scene payloads while preserving Excalidraw behavior.
+
 ## 0.4.1 - 2026-06-15
 
 - Added a repo-bundled Codex plugin and local marketplace entry for Agentic Canvas.

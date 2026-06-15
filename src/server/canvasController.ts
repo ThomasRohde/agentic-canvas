@@ -4,10 +4,10 @@ import type {
   BinaryFiles,
   CanvasMetadata,
   CanvasObject,
+  CanvasObjectDetail,
   CanvasObjectSummary,
   CanvasObjectType,
   CreateObjectSpec,
-  ExcalidrawElement,
   Scene,
   UpdateObjectPatch,
 } from "../core/scene.js";
@@ -17,9 +17,9 @@ export type SceneChangeOrigin = unknown;
 
 export interface SceneSnapshot {
   version: number;
-  elements: ExcalidrawElement[];
-  appState: AppState;
-  files: BinaryFiles;
+  canvas: string;
+  native: unknown;
+  appState: Record<string, unknown>;
 }
 
 export type SceneChangeListener = (snapshot: SceneSnapshot, origin?: SceneChangeOrigin) => void;
@@ -43,6 +43,10 @@ export class CanvasController {
     return this.plugin.name;
   }
 
+  get fileExtension(): string {
+    return this.plugin.fileExtension;
+  }
+
   setChangeListener(listener: SceneChangeListener): void {
     this.listener = listener;
   }
@@ -54,9 +58,9 @@ export class CanvasController {
   getSnapshot(): SceneSnapshot {
     return {
       version: this.scene.version,
-      elements: this.scene.elements,
-      appState: this.scene.appState,
-      files: this.scene.files,
+      canvas: this.plugin.name,
+      native: this.scene.native,
+      appState: this.scene.appState as Record<string, unknown>,
     };
   }
 
@@ -75,16 +79,24 @@ export class CanvasController {
     return this.plugin.listObjects(this.scene, type);
   }
 
-  getObject(id: string): CanvasObject | undefined {
+  getObject(id: string): CanvasObjectDetail | undefined {
     return this.plugin.getObject(this.scene, id);
   }
 
   createObject(spec: CreateObjectSpec): CanvasObject {
-    return this.mutateScene((scene) => this.plugin.createObject(scene, spec));
+    const createObject = this.plugin.createObject;
+    if (!createObject) {
+      throw new Error(`Canvas "${this.plugin.name}" does not support generic shape objects`);
+    }
+    return this.mutateScene((scene) => createObject(scene, spec));
   }
 
   updateObject(id: string, patch: UpdateObjectPatch): CanvasObject | undefined {
-    return this.mutateScene((scene) => this.plugin.updateObject(scene, id, patch));
+    const updateObject = this.plugin.updateObject;
+    if (!updateObject) {
+      throw new Error(`Canvas "${this.plugin.name}" does not support generic shape objects`);
+    }
+    return this.mutateScene((scene) => updateObject(scene, id, patch));
   }
 
   deleteObjects(ids: string[]): string[] {
@@ -96,32 +108,36 @@ export class CanvasController {
   }
 
   serialize(): string {
-    return JSON.stringify(this.plugin.serialize(this.scene), null, 2);
+    const serialized = this.plugin.serialize(this.scene);
+    return typeof serialized === "string" ? serialized : JSON.stringify(serialized, null, 2);
   }
 
-  deserialize(raw: string): void {
+  deserialize(raw: string, options?: { repair?: boolean }): void {
     const before = cloneScene(this.scene);
     const currentVersion = this.scene.version;
-    this.scene = this.plugin.deserialize(raw);
+    this.scene = this.plugin.deserialize(raw, options);
     this.scene.version = currentVersion;
     this.pushUndo(before);
     this.redoStack.length = 0;
     this.bumpAndNotify();
   }
 
-  replaceFromBrowser(
-    elements: ExcalidrawElement[],
-    appState?: Partial<AppState>,
-    files?: BinaryFiles,
-    origin?: SceneChangeOrigin,
-  ): void {
+  replaceFromBrowser(native: unknown, appState?: unknown, origin?: SceneChangeOrigin): void {
     this.pushUndo(cloneScene(this.scene));
     this.redoStack.length = 0;
-    this.scene.elements = elements;
-    this.scene.appState = {
-      viewBackgroundColor: appState?.viewBackgroundColor ?? this.scene.appState.viewBackgroundColor,
-    };
-    this.scene.files = files ?? this.scene.files;
+    const normalized = this.plugin.normalizeBrowserScene?.(native, appState, this.scene);
+    if (normalized) {
+      this.scene.native = normalized.native;
+      this.scene.appState = normalized.appState;
+    } else {
+      this.scene.native = native;
+      if (appState !== undefined) {
+        this.scene.appState =
+          typeof appState === "object" && appState !== null
+            ? (appState as Record<string, unknown>)
+            : {};
+      }
+    }
     this.bumpAndNotify(origin);
   }
 
