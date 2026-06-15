@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
 import { CanvasController } from "../src/server/canvasController.js";
 import { Workspace } from "../src/server/workspace.js";
+import { readPackageInfo } from "../src/shared/packageInfo.js";
 import { connectInMemory, jsonContent, textContent } from "./helpers.js";
 
 describe("baseline MCP tools", () => {
@@ -39,10 +40,13 @@ describe("baseline MCP tools", () => {
     const { client, close } = await connectInMemory(server);
 
     try {
-      const state = jsonContent<{ canvas: string }>(
+      const packageInfo = readPackageInfo();
+      const state = jsonContent<{ canvas: string; packageName: string; serverVersion: string }>(
         await client.callTool({ name: "get_canvas_state", arguments: {} }),
       );
       expect(state.canvas).toBe("excalidraw");
+      expect(state.packageName).toBe(packageInfo.name);
+      expect(state.serverVersion).toBe(packageInfo.version);
 
       const created = jsonContent<{ id: string }>(
         await client.callTool({
@@ -110,7 +114,7 @@ describe("baseline MCP tools", () => {
       expect(controller.getObject(created.id)?.x).toBe(40);
 
       const saved = jsonContent<{ path: string }>(
-        await client.callTool({ name: "save_canvas", arguments: { path: "demo.excalidraw" } }),
+        await client.callTool({ name: "save_canvas", arguments: { path: "demo" } }),
       );
       expect(saved.path).toContain("demo.excalidraw");
 
@@ -118,7 +122,7 @@ describe("baseline MCP tools", () => {
       expect(controller.listObjects()).toEqual([]);
 
       const opened = jsonContent<{ objectCount: number }>(
-        await client.callTool({ name: "open_canvas", arguments: { path: "demo.excalidraw" } }),
+        await client.callTool({ name: "open_canvas", arguments: { path: "demo" } }),
       );
       expect(opened.objectCount).toBe(1);
 
@@ -133,10 +137,141 @@ describe("baseline MCP tools", () => {
       expect((screenshot as { isError?: boolean }).isError).toBe(true);
       expect(textContent(screenshot)).toMatch(/No browser canvas client/);
 
-      const deleted = jsonContent<{ deleted: string[] }>(
-        await client.callTool({ name: "delete_object", arguments: { ids: [created.id] } }),
+      const deleted = jsonContent<{ deleted: string[]; missingIds: string[] }>(
+        await client.callTool({
+          name: "delete_object",
+          arguments: { ids: [created.id, "missing-delete-id"] },
+        }),
       );
       expect(deleted.deleted).toEqual([created.id]);
+      expect(deleted.missingIds).toEqual(["missing-delete-id"]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("normalizes file extensions for canvas files and screenshots", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    controller.createObject({ type: "rectangle", x: 0, y: 0, width: 100, height: 80 });
+    const server = buildMcpServer({
+      plugin,
+      controller,
+      workspace,
+      clientsConnected: () => 1,
+      requestExport: async () => ({
+        mimeType: "image/png",
+        base64: Buffer.from("png-bytes").toString("base64"),
+      }),
+      requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (nextSelectedIds) => ({ selectedIds: nextSelectedIds }),
+    });
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const saved = jsonContent<{ path: string }>(
+        await client.callTool({ name: "save_canvas", arguments: { path: "nested/demo" } }),
+      );
+      expect(saved.path).toBe(path.join(root, "nested", "demo.excalidraw"));
+
+      controller.clear();
+      const opened = jsonContent<{ path: string; objectCount: number }>(
+        await client.callTool({ name: "open_canvas", arguments: { path: "nested/demo" } }),
+      );
+      expect(opened.path).toBe(saved.path);
+      expect(opened.objectCount).toBe(1);
+
+      const screenshot = await client.callTool({
+        name: "screenshot",
+        arguments: { path: "shots/shot" },
+      });
+      const written = jsonContent<{ path: string }>(screenshot);
+      expect(written.path).toBe(path.join(root, "shots", "shot.png"));
+      await expect(readFile(written.path, "utf8")).resolves.toBe("png-bytes");
+
+      const badSave = await client.callTool({
+        name: "save_canvas",
+        arguments: { path: "bad.txt" },
+      });
+      expect((badSave as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(badSave)).toMatch(/Expected \.excalidraw file path/);
+
+      const badOpen = await client.callTool({
+        name: "open_canvas",
+        arguments: { path: "bad.txt" },
+      });
+      expect((badOpen as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(badOpen)).toMatch(/Expected \.excalidraw file path/);
+
+      const badScreenshot = await client.callTool({
+        name: "screenshot",
+        arguments: { path: "bad.txt" },
+      });
+      expect((badScreenshot as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(badScreenshot)).toMatch(/Expected \.png file path/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("returns tool errors for invalid object creation and updates", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const server = buildMcpServer({
+      plugin,
+      controller,
+      workspace,
+      clientsConnected: () => 0,
+      requestExport: async () => {
+        throw new Error("not used");
+      },
+      requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (nextSelectedIds) => ({ selectedIds: nextSelectedIds }),
+    });
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const missingText = await client.callTool({
+        name: "create_object",
+        arguments: { type: "text", x: 0, y: 0 },
+      });
+      expect((missingText as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(missingText)).toMatch(/Text must not be empty/);
+
+      const rectangle = jsonContent<{ id: string }>(
+        await client.callTool({
+          name: "create_object",
+          arguments: { type: "rectangle", x: 0, y: 0, width: 100, height: 80 },
+        }),
+      );
+
+      const badUpdate = await client.callTool({
+        name: "update_object",
+        arguments: {
+          id: rectangle.id,
+          points: [
+            [0, 0],
+            [10, 10],
+          ],
+        },
+      });
+      expect((badUpdate as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(badUpdate)).toMatch(/Points can only update line or arrow objects/);
+      expect(controller.getObject(rectangle.id)?.points).toBeUndefined();
+
+      const selfLoop = await client.callTool({
+        name: "create_object",
+        arguments: {
+          type: "arrow",
+          x: 0,
+          y: 0,
+          start: { elementId: rectangle.id },
+          end: { elementId: rectangle.id },
+        },
+      });
+      expect((selfLoop as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(selfLoop)).toMatch(/Arrow self-loops are not supported/);
+      expect(controller.listObjects("arrow")).toEqual([]);
     } finally {
       await close();
     }

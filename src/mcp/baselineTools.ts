@@ -1,3 +1,4 @@
+import nodePath from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type {
@@ -9,6 +10,7 @@ import type {
 } from "../core/scene.js";
 import type { CanvasController } from "../server/canvasController.js";
 import type { Workspace } from "../server/workspace.js";
+import { readPackageInfo } from "../shared/packageInfo.js";
 import {
   applyCanvasPatchShape,
   canvasObjectTypeSchema,
@@ -45,13 +47,20 @@ export interface BaselineToolContext {
 }
 
 export function registerBaselineTools(server: McpServer, context: BaselineToolContext): void {
+  const packageInfo = readPackageInfo();
+
   server.registerTool(
     "get_canvas_state",
     {
       description: "Get canvas metadata and current scene state summary.",
       inputSchema: {},
     },
-    async () => textResult(context.controller.getMetadata(context.clientsConnected())),
+    async () =>
+      textResult({
+        ...context.controller.getMetadata(context.clientsConnected()),
+        packageName: packageInfo.name,
+        serverVersion: packageInfo.version,
+      }),
   );
 
   server.registerTool(
@@ -121,8 +130,12 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
       inputSchema: updateObjectShape,
     },
     async ({ id, ...patch }) => {
-      const object = context.controller.updateObject(id, patch as UpdateObjectPatch);
-      return object ? textResult({ id: object.id }) : errorResult(`Object not found: ${id}`);
+      try {
+        const object = context.controller.updateObject(id, patch as UpdateObjectPatch);
+        return object ? textResult({ id: object.id }) : errorResult(`Object not found: ${id}`);
+      } catch (error) {
+        return errorResult(error);
+      }
     },
   );
 
@@ -134,7 +147,11 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
         ids: z.array(z.string()).min(1),
       },
     },
-    async ({ ids }) => textResult({ deleted: context.controller.deleteObjects(ids) }),
+    async ({ ids }) => {
+      const missingIds = ids.filter((id) => !context.controller.getObject(id));
+      const deleted = context.controller.deleteObjects(ids);
+      return textResult({ deleted, missingIds });
+    },
   );
 
   server.registerTool(
@@ -159,8 +176,9 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
     },
     async ({ path }) => {
       try {
+        const normalizedPath = normalizeToolPath(path ?? "canvas.excalidraw", ".excalidraw");
         const written = await context.workspace.writeText(
-          path ?? "canvas.excalidraw",
+          normalizedPath,
           context.controller.serialize(),
         );
         return textResult({ path: written });
@@ -195,15 +213,18 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
       },
     },
     async ({ path }) => {
+      let requestedPath = path;
       try {
-        const file = await context.workspace.readText(path);
+        const normalizedPath = normalizeToolPath(path, ".excalidraw");
+        requestedPath = normalizedPath;
+        const file = await context.workspace.readText(normalizedPath);
         context.controller.deserialize(file.text);
         return textResult({
           path: file.path,
           objectCount: context.controller.listObjects().length,
         });
       } catch (error) {
-        return errorResult(friendlyOpenError(error, path));
+        return errorResult(friendlyOpenError(error, requestedPath));
       }
     },
   );
@@ -219,13 +240,14 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
     },
     async ({ path, exportPadding }) => {
       try {
+        const normalizedPath = path ? normalizeToolPath(path, ".png") : undefined;
         const exported = await context.requestExport({ exportPadding });
         const content: Array<
           { type: "image"; data: string; mimeType: string } | { type: "text"; text: string }
         > = [{ type: "image", data: exported.base64, mimeType: exported.mimeType }];
-        if (path) {
+        if (normalizedPath) {
           const written = await context.workspace.writeBinary(
-            path,
+            normalizedPath,
             Buffer.from(exported.base64, "base64"),
           );
           content.push({ type: "text", text: JSON.stringify({ path: written }) });
@@ -337,6 +359,18 @@ function errorResult(error: unknown) {
     isError: true,
     content: [{ type: "text" as const, text: message }],
   };
+}
+
+function normalizeToolPath(userPath: string, expectedExtension: ".excalidraw" | ".png"): string {
+  const extension = nodePath.extname(userPath);
+  if (!extension) {
+    return `${userPath}${expectedExtension}`;
+  }
+  if (extension.toLowerCase() !== expectedExtension) {
+    throw new Error(`Expected ${expectedExtension} file path, got: ${userPath}`);
+  }
+
+  return userPath;
 }
 
 function friendlyOpenError(error: unknown, requestedPath: string): unknown {

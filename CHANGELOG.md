@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.0 - 2026-06-15
+
+- Hardened MCP file tools so canvas files default to `.excalidraw`, screenshots default to `.png`, and mismatched extensions return clear tool errors.
+- Added type-aware Excalidraw mutation validation for text creation, linear geometry, endpoint updates, container assignments, and self-loop arrows.
+- Updated `delete_object`, `get_canvas_state`, and `/healthz` responses with missing-id and package/server version metadata.
+- Expanded MCP, plugin, patch, file, and HTTP health tests for the blackbox findings.
+
 ## 0.3.0 - 2026-06-14
 
 - Added MCP server instructions to guide agent tool use.

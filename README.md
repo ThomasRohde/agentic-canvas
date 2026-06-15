@@ -40,7 +40,7 @@ Flags:
 - `--workspace <dir>`: root for save/open/screenshot files, default current directory
 - `--open` / `--no-open`: open the browser on startup, default open
 
-Optional environment overrides are `AGENTIC_CANVAS_PORT`, `AGENTIC_CANVAS_HOST`, and `AGENTIC_CANVAS_WORKSPACE`. `save_canvas`, `open_canvas`, and screenshot file writes are constrained to the configured workspace root. No secrets or `.env` file are required.
+Optional environment overrides are `AGENTIC_CANVAS_PORT`, `AGENTIC_CANVAS_HOST`, and `AGENTIC_CANVAS_WORKSPACE`. `save_canvas`, `open_canvas`, and screenshot file writes are constrained to the configured workspace root. An HTTP MCP client config only points at an already-running server; it does not choose that server's current working directory. Start the server with `--workspace <project>` when files should be scoped to a project directory. No secrets or `.env` file are required.
 
 ## Develop
 
@@ -83,8 +83,10 @@ Example tool flow:
 5. Select an object in the browser and call `get_selected_objects`; the tool returns the selected normalized object.
 6. Call `select_objects` with an object id to select it from the MCP client.
 7. Call `screenshot`; the tool returns a PNG image.
-8. Call `save_canvas` with `{ "path": "demo.excalidraw" }`; the file is written inside the workspace.
-9. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo.excalidraw" }`; the saved scene is restored.
+8. Call `save_canvas` with `{ "path": "demo" }`; the file is written as `demo.excalidraw` inside the workspace.
+9. Call `clear_canvas`, then `open_canvas` with `{ "path": "demo" }`; the saved scene is restored.
+
+`save_canvas` and `open_canvas` append `.excalidraw` when no extension is provided and reject other extensions. `screenshot` appends `.png` for file writes and rejects other extensions.
 
 ## Test And Build
 

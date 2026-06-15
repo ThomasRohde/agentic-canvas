@@ -271,6 +271,30 @@ Baseline tools provided for every plugin:
 - `undo`
 - `redo`
 
+`get_canvas_state` returns scene metadata plus server package metadata. The scene
+counter remains `version`; the npm package version is returned separately as
+`serverVersion`:
+
+```json
+{
+  "canvas": "excalidraw",
+  "version": 7,
+  "objectCount": 3,
+  "clientsConnected": 1,
+  "packageName": "@trohde/agentic-canvas",
+  "serverVersion": "0.3.0"
+}
+```
+
+`delete_object` accepts `{ ids: string[] }` and returns `{ deleted, missingIds }`.
+`missingIds` reports requested ids that did not exist before deletion; deleting a
+container may still include bound labels in `deleted`.
+
+`save_canvas` and `open_canvas` append `.excalidraw` when no extension is supplied
+and reject other extensions. `screenshot` appends `.png` for file writes and rejects
+other extensions. All file paths are still resolved through the configured
+workspace.
+
 `get_selected_objects` has no input arguments. It asks the connected browser for the
 current UI selection, resolves those ids through `CanvasController`, and returns JSON
 text:

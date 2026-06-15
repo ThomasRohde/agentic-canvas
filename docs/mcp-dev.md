@@ -27,6 +27,15 @@ The backend port can be changed with the existing CLI flags or environment varia
 npm run dev:server -- --port 3939
 ```
 
+The backend workspace defaults to the directory where the server process is started.
+An HTTP MCP client config only points to `/mcp`; it does not set the server's cwd or
+workspace. For project-scoped file tools, start the backend with an explicit
+workspace:
+
+```bash
+npm run dev:server -- --workspace C:\Users\thoma\Projects\agentic-canvas
+```
+
 ## Full UI Loop
 
 Use two terminals when changing both web and backend code:
@@ -88,6 +97,10 @@ npm run inspect:mcp
 The Inspector connects to `http://127.0.0.1:3333/mcp` using Streamable HTTP. Use it to
 list tools and call simple tools such as `get_canvas_state` before testing browser-bound
 flows like `screenshot`.
+
+File tool paths stay inside the configured workspace. `save_canvas` and `open_canvas`
+append `.excalidraw` when no extension is supplied and reject other extensions.
+`screenshot` appends `.png` for file writes and rejects other extensions.
 
 ## Constraints
 

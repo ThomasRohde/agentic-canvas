@@ -85,6 +85,13 @@ describe("connect_objects MCP tool", () => {
       width: 120,
       height: 70,
     });
+    const second = controller.createObject({
+      type: "ellipse",
+      x: 220,
+      y: 0,
+      width: 120,
+      height: 70,
+    });
     const beforeCount = controller.listObjects().length;
     const server = createServer(plugin, controller, workspace);
     const { client, close } = await connectInMemory(server);
@@ -94,7 +101,7 @@ describe("connect_objects MCP tool", () => {
         name: "connect_objects",
         arguments: {
           edges: [
-            { fromId: first.id, toId: first.id },
+            { fromId: first.id, toId: second.id },
             { fromId: first.id, toId: "missing" },
           ],
         },
@@ -103,6 +110,37 @@ describe("connect_objects MCP tool", () => {
       expect((result as { isError?: boolean }).isError).toBe(true);
       expect(textContent(result)).toMatch(/Object not found: missing/);
       expect(controller.listObjects()).toHaveLength(beforeCount);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects self-loop edges without creating arrows", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const first = controller.createObject({
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 70,
+    });
+    const beforeCount = controller.listObjects().length;
+    const server = createServer(plugin, controller, workspace);
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const result = await client.callTool({
+        name: "connect_objects",
+        arguments: {
+          edges: [{ fromId: first.id, toId: first.id }],
+        },
+      });
+
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(result)).toMatch(/Arrow self-loops are not supported/);
+      expect(controller.listObjects()).toHaveLength(beforeCount);
+      expect(controller.listObjects("arrow")).toEqual([]);
     } finally {
       await close();
     }

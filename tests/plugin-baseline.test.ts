@@ -150,6 +150,9 @@ describe("Excalidraw plugin baseline ops", () => {
     expect(() => plugin.createObject(scene, { type: "text", x: 0, y: 0, text: "" })).toThrow(
       /Text must not be empty/,
     );
+    expect(() => plugin.createObject(scene, { type: "text", x: 0, y: 0 })).toThrow(
+      /Text must not be empty/,
+    );
     expect(() =>
       plugin.createObject(scene, {
         type: "rectangle",
@@ -166,5 +169,91 @@ describe("Excalidraw plugin baseline ops", () => {
     expect(() =>
       plugin.createObject(scene, { type: "rectangle", x: 0, y: 0, width: 0, height: 80 }),
     ).toThrow(/Width must be greater than zero/);
+  });
+
+  it("rejects type-incompatible updates before mutating geometry", () => {
+    const plugin = createExcalidrawPlugin();
+    const scene = plugin.createInitialScene();
+    const rectangle = plugin.createObject(scene, {
+      type: "rectangle",
+      x: 10,
+      y: 20,
+      width: 120,
+      height: 60,
+    });
+
+    expect(() =>
+      plugin.updateObject(scene, rectangle.id, {
+        points: [
+          [0, 0],
+          [10, 10],
+        ],
+      }),
+    ).toThrow(/Points can only update line or arrow objects/);
+    expect(() => plugin.updateObject(scene, rectangle.id, { start: { x: 0, y: 0 } })).toThrow(
+      /Arrow endpoints cannot be updated/,
+    );
+    expect(() => plugin.updateObject(scene, rectangle.id, { end: { x: 10, y: 10 } })).toThrow(
+      /Arrow endpoints cannot be updated/,
+    );
+    expect(() => plugin.updateObject(scene, rectangle.id, { containerId: "container" })).toThrow(
+      /containerId can only be updated on text objects/,
+    );
+
+    expect(plugin.getObject(scene, rectangle.id)).toMatchObject({
+      x: 10,
+      y: 20,
+      width: 120,
+      height: 60,
+    });
+
+    const line = plugin.createObject(scene, {
+      type: "line",
+      x: 0,
+      y: 0,
+      points: [
+        [0, 0],
+        [100, 0],
+      ],
+    });
+    const arrow = plugin.createObject(scene, {
+      type: "arrow",
+      x: 0,
+      y: 0,
+      points: [
+        [0, 0],
+        [100, 0],
+      ],
+    });
+
+    expect(() => plugin.updateObject(scene, line.id, { width: 200 })).toThrow(
+      /Line and arrow dimensions cannot be updated directly/,
+    );
+    expect(() => plugin.updateObject(scene, arrow.id, { height: 200 })).toThrow(
+      /Line and arrow dimensions cannot be updated directly/,
+    );
+  });
+
+  it("rejects bound arrow self-loops", () => {
+    const plugin = createExcalidrawPlugin();
+    const scene = plugin.createInitialScene();
+    const rectangle = plugin.createObject(scene, {
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+    });
+
+    expect(() =>
+      plugin.createObject(scene, {
+        type: "arrow",
+        x: 0,
+        y: 0,
+        start: { elementId: rectangle.id },
+        end: { elementId: rectangle.id },
+      }),
+    ).toThrow(/Arrow self-loops are not supported/);
+    expect(plugin.listObjects(scene, "arrow")).toEqual([]);
   });
 });

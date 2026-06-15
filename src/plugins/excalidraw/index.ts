@@ -484,17 +484,20 @@ function applyStyle(
 
 function validateCreateSpec(spec: CreateObjectSpec): void {
   validateStyle(spec.style);
-  validateText(spec.type, spec.text);
+  validateText(spec.type, spec.text, { required: spec.type === "text" });
   validateDimensions(spec.type, spec.width, spec.height);
+  validateArrowSelfLoop(spec);
   if ((spec.type === "line" || spec.type === "arrow") && spec.points) {
     validateLinearPoints(spec.points);
   }
 }
 
 function validateUpdatePatch(element: ExcalidrawElement, patch: UpdateObjectPatch): void {
+  const type = element.type as CanvasObjectType;
   validateStyle(patch.style);
-  validateText(element.type as CanvasObjectType, patch.text);
-  validateDimensions(element.type as CanvasObjectType, patch.width, patch.height);
+  validateText(type, patch.text);
+  validateUpdateFields(element, patch);
+  validateDimensions(type, patch.width, patch.height);
   if (patch.points) {
     validateLinearPoints(patch.points);
   }
@@ -511,9 +514,44 @@ function validateStyle(style?: CanvasStyle): void {
   }
 }
 
-function validateText(type: CanvasObjectType, text?: string): void {
-  if (text !== undefined && text.trim().length === 0 && type !== "frame") {
+function validateText(
+  type: CanvasObjectType,
+  text?: string,
+  options: { required?: boolean } = {},
+): void {
+  if (
+    (options.required && type === "text" && text === undefined) ||
+    (text !== undefined && text.trim().length === 0 && type !== "frame")
+  ) {
     throw new Error("Text must not be empty");
+  }
+}
+
+function validateUpdateFields(element: ExcalidrawElement, patch: UpdateObjectPatch): void {
+  if (patch.start !== undefined || patch.end !== undefined) {
+    throw new Error("Arrow endpoints cannot be updated; recreate the arrow instead");
+  }
+  if (patch.points !== undefined && !isLinearElement(element)) {
+    throw new Error("Points can only update line or arrow objects");
+  }
+  if (isLinearElement(element) && (patch.width !== undefined || patch.height !== undefined)) {
+    throw new Error("Line and arrow dimensions cannot be updated directly; use points instead");
+  }
+  if (patch.containerId !== undefined && element.type !== "text") {
+    throw new Error("containerId can only be updated on text objects");
+  }
+}
+
+function validateArrowSelfLoop(spec: CreateObjectSpec): void {
+  if (
+    spec.type === "arrow" &&
+    spec.start &&
+    spec.end &&
+    isElementEndpoint(spec.start) &&
+    isElementEndpoint(spec.end) &&
+    spec.start.elementId === spec.end.elementId
+  ) {
+    throw new Error("Arrow self-loops are not supported");
   }
 }
 

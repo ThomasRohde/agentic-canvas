@@ -2,6 +2,7 @@ import path from "node:path";
 import express from "express";
 import type { BuildMcpServerOptions } from "../mcp/buildServer.js";
 import { buildMcpServer } from "../mcp/buildServer.js";
+import { readPackageInfo } from "../shared/packageInfo.js";
 import { mountMcpHttp } from "./mcpHttp.js";
 
 export interface CreateAppOptions extends BuildMcpServerOptions {
@@ -11,6 +12,7 @@ export interface CreateAppOptions extends BuildMcpServerOptions {
 
 export function createApp(options: CreateAppOptions): express.Express {
   const app = express();
+  const packageInfo = readPackageInfo();
 
   app.use(express.json({ limit: "10mb" }));
 
@@ -19,6 +21,8 @@ export function createApp(options: CreateAppOptions): express.Express {
       status: "ok",
       canvas: options.plugin.name,
       version: options.controller.getSnapshot().version,
+      packageName: packageInfo.name,
+      serverVersion: packageInfo.version,
     });
   });
 

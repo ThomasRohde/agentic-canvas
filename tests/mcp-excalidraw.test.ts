@@ -184,6 +184,48 @@ describe("Excalidraw-specific MCP tools", () => {
     }
   });
 
+  it("rejects draw_arrow self-loops without mutating the scene", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const rectangle = controller.createObject({
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 160,
+      height: 80,
+    });
+    const beforeCount = controller.listObjects().length;
+    const server = buildMcpServer({
+      plugin,
+      controller,
+      workspace,
+      clientsConnected: () => 0,
+      requestExport: async () => {
+        throw new Error("No browser canvas client is connected");
+      },
+      requestSelection: async () => ({ selectedIds: [] }),
+      requestSetSelection: async (selectedIds) => ({ selectedIds }),
+    });
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const result = await client.callTool({
+        name: "draw_arrow",
+        arguments: {
+          start: { elementId: rectangle.id },
+          end: { elementId: rectangle.id },
+        },
+      });
+
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(result)).toMatch(/Arrow self-loops are not supported/);
+      expect(controller.listObjects()).toHaveLength(beforeCount);
+      expect(controller.listObjects("arrow")).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
   it("keeps cyclic flowcharts compact and rejects bad edges atomically", async () => {
     const plugin = createExcalidrawPlugin();
     const controller = new CanvasController(plugin);

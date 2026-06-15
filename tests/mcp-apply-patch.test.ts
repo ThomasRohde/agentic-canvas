@@ -261,6 +261,132 @@ describe("apply_canvas_patch MCP tool", () => {
     }
   });
 
+  it("rejects invalid create specs and rolls back the patch", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const beforeVersion = controller.currentVersion();
+    const beforeCount = controller.listObjects().length;
+    const server = createServer(plugin, controller, workspace);
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const result = await client.callTool({
+        name: "apply_canvas_patch",
+        arguments: {
+          operations: [
+            {
+              op: "create",
+              key: "valid",
+              spec: { type: "rectangle", x: 0, y: 0, width: 100, height: 80 },
+            },
+            {
+              op: "create",
+              key: "invalid",
+              spec: { type: "text", x: 10, y: 10 },
+            },
+          ],
+        },
+      });
+
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(result)).toMatch(/Text must not be empty/);
+      expect(controller.currentVersion()).toBe(beforeVersion);
+      expect(controller.listObjects()).toHaveLength(beforeCount);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects self-loop arrows after resolving patch keys", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const beforeVersion = controller.currentVersion();
+    const beforeCount = controller.listObjects().length;
+    const server = createServer(plugin, controller, workspace);
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const result = await client.callTool({
+        name: "apply_canvas_patch",
+        arguments: {
+          operations: [
+            {
+              op: "create",
+              key: "node",
+              spec: { type: "rectangle", x: 0, y: 0, width: 100, height: 80 },
+            },
+            {
+              op: "create",
+              key: "loop",
+              spec: {
+                type: "arrow",
+                x: 0,
+                y: 0,
+                start: { elementId: "node" },
+                end: { elementId: "node" },
+              },
+            },
+          ],
+        },
+      });
+
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(result)).toMatch(/Arrow self-loops are not supported/);
+      expect(controller.currentVersion()).toBe(beforeVersion);
+      expect(controller.listObjects()).toHaveLength(beforeCount);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rolls back prior patch updates when a later update is invalid", async () => {
+    const plugin = createExcalidrawPlugin();
+    const controller = new CanvasController(plugin);
+    const rectangle = controller.createObject({
+      type: "rectangle",
+      x: 10,
+      y: 20,
+      width: 100,
+      height: 80,
+    });
+    const beforeVersion = controller.currentVersion();
+    const server = createServer(plugin, controller, workspace);
+    const { client, close } = await connectInMemory(server);
+
+    try {
+      const result = await client.callTool({
+        name: "apply_canvas_patch",
+        arguments: {
+          operations: [
+            { op: "update", id: rectangle.id, patch: { x: 40 } },
+            {
+              op: "update",
+              id: rectangle.id,
+              patch: {
+                points: [
+                  [0, 0],
+                  [10, 10],
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(result)).toMatch(/Points can only update line or arrow objects/);
+      expect(controller.currentVersion()).toBe(beforeVersion);
+      expect(controller.getObject(rectangle.id)).toMatchObject({
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 80,
+      });
+    } finally {
+      await close();
+    }
+  });
+
   it("rejects duplicate patch keys and rolls back created objects", async () => {
     const plugin = createExcalidrawPlugin();
     const controller = new CanvasController(plugin);
