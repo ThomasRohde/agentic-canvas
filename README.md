@@ -1,6 +1,6 @@
 # Agentic Canvas
 
-Agentic Canvas is a local-first visual canvas that an AI agent drives through a local MCP server. It supports Excalidraw for freeform diagrams and JSON Canvas for portable semantic knowledge maps, while a single local Node process serves the browser app, exposes MCP over Streamable HTTP, and syncs scene changes over WebSocket.
+Agentic Canvas is a local-first visual canvas that an AI agent drives through a local MCP server. It supports Excalidraw for freeform diagrams, JSON Canvas for portable semantic knowledge maps, and Flow for Agentic Canvas-native typed graphs, while a single local Node process serves the browser app, exposes MCP over Streamable HTTP, and syncs scene changes over WebSocket.
 
 Published package: `@trohde/agentic-canvas`
 
@@ -25,6 +25,7 @@ npm run build
 ```bash
 npm start -- --canvas excalidraw
 npm start -- --canvas jsoncanvas
+npm start -- --canvas flow
 ```
 
 For package usage after publishing:
@@ -32,11 +33,12 @@ For package usage after publishing:
 ```bash
 npx @trohde/agentic-canvas --canvas excalidraw
 npx @trohde/agentic-canvas --canvas jsoncanvas
+npx @trohde/agentic-canvas --canvas flow
 ```
 
 Flags:
 
-- `--canvas <name>`: canvas plugin, one of `excalidraw`, `jsoncanvas`
+- `--canvas <name>`: canvas plugin, one of `excalidraw`, `jsoncanvas`, `flow`
 - `--port <n>`: port, default `3333`
 - `--host <host>`: bind host, default `127.0.0.1`
 - `--workspace <dir>`: root for save/open/screenshot files, default current directory
@@ -113,6 +115,27 @@ small explicit spacing values should not overlap cards. It does not fetch link
 previews, index Obsidian vaults, or render arbitrary embedded media in this
 version.
 
+For `--canvas flow`, agents should use Flow-specific graph tools instead of
+generic shape tools. Available operations include `add_flow_node`, `add_port`,
+`connect_flow_nodes`, `find_flow_nodes`, `find_flow_edges`, `find_upstream`,
+`find_downstream`, `find_paths`, `find_cycles`, `validate_flow`,
+`auto_layout_flow`, `export_mermaid`, and transactional `apply_flow_patch`. A
+typical Flow graph flow:
+
+1. Call `apply_flow_patch` or `add_flow_node` to create typed services, systems,
+   data stores, queues, steps, risks, controls, and boundaries.
+2. Call `add_port` where interface, data, or queue semantics matter.
+3. Call `connect_flow_nodes` with edge types such as `calls`, `publishes`,
+   `consumes`, `reads`, `writes`, `mitigates`, or `depends_on`.
+4. Call `validate_flow`, then `auto_layout_flow`.
+5. Call `export_mermaid` when a text diagram is needed.
+6. Call `save_canvas` with `{ "path": "system-flow" }`; the file is written as `system-flow.flow`.
+
+Flow writes Agentic Canvas-native `.flow` JSON with `type:"agentic-flow"` and
+`version:1`. It is designed for architecture, workflow, data-lineage, and
+risk/control maps, but it is not BPMN, ArchiMate, UML, or C4 compliant in this
+version.
+
 ## Agent Plugins
 
 This repository bundles one Agentic Canvas plugin payload under
@@ -158,11 +181,12 @@ before using it. Select the canvas type when starting the server:
 ```bash
 npx @trohde/agentic-canvas@latest --canvas excalidraw --workspace <project-dir>
 npx @trohde/agentic-canvas@latest --canvas jsoncanvas --workspace <project-dir>
+npx @trohde/agentic-canvas@latest --canvas flow --workspace <project-dir>
 ```
 
 The plugin is one marketplace entry for all Agentic Canvas canvas types. It does not
 encode the canvas type in `.mcp.json`; agents should call `get_canvas_state` and
-`get_canvas_capabilities` to select Excalidraw, JSON Canvas, or future
+`get_canvas_capabilities` to select Excalidraw, JSON Canvas, Flow, or future
 canvas-specific workflows. For parallel canvases, run separate Agentic Canvas
 servers on different ports and configure additional MCP entries manually.
 
@@ -210,6 +234,13 @@ npm run inspect:mcp
 
 For JSON Canvas, run `npm run build && npm start -- --canvas jsoncanvas --workspace <tmp-dir>`, then call `add_text_card`, `connect_cards`, `auto_layout_cards`, `save_canvas`, `clear_canvas`, `open_canvas`, and `screenshot`. Confirm cards and edges appear in the browser, drag a card, and verify `get_object` reflects the updated `x`/`y`.
 
+For Flow, run `npm run build && npm start -- --canvas flow --workspace <tmp-dir>`,
+then call `apply_flow_patch`, `connect_flow_nodes`, `validate_flow`,
+`auto_layout_flow`, `export_mermaid`, `save_canvas`, `clear_canvas`,
+`open_canvas`, and `screenshot`. Confirm typed nodes, ports, and edges appear in
+the browser, browser edits sync back, selection round-trips through
+`select_objects` and `get_selected_objects`, and saved files use `.flow`.
+
 ## Release Checks
 
 This project follows Semantic Versioning. Version scripts update `package.json` and `package-lock.json` without committing or tagging:
@@ -236,6 +267,7 @@ src/server/              Express, MCP HTTP, WebSocket bridge, workspace safety
 src/mcp/                 MCP server registration and baseline tools
 src/core/                Plugin interface and normalized scene types
 src/plugins/excalidraw/  Excalidraw plugin, element builder, adapter, tools
+src/plugins/flow/       Flow model, validation, graph algorithms, layout, tools
 src/plugins/jsoncanvas/  JSON Canvas model, adapter, validation, tools
 src/web/                 React browser app and canvas renderers
 src/shared/              Shared protocol and logger
@@ -257,3 +289,4 @@ scripts/                 Release and package smoke scripts
   scene hashes, or optimistic-concurrency tokens.
 - The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, object search, atomic patches, layout cleanup, save/open, and screenshot.
 - The JSON Canvas tool surface is semantic-card focused: text/file/link cards, groups, edges, search, layout, atomic patches, save/open, and screenshot.
+- The Flow tool surface is typed-graph focused: nodes, ports, edges, traversal, validation, deterministic layout, Mermaid export, atomic patches, save/open, and screenshot. Flow is an Agentic Canvas-native graph format, not a standards-compliant BPMN, ArchiMate, UML, or C4 implementation.

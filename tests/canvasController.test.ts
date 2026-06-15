@@ -86,6 +86,55 @@ describe("CanvasController", () => {
     expect(controller.undo()).toBe(false);
   });
 
+  it("ignores tiny JSON Canvas browser geometry echoes", () => {
+    const controller = new CanvasController(createJsonCanvasPlugin());
+    controller.mutateScene((scene) => {
+      (scene.native as JsonCanvasDocument).nodes = [
+        {
+          id: "observability",
+          type: "group",
+          x: 100,
+          y: 200,
+          width: 520,
+          height: 360,
+          label: "Observability",
+        },
+      ];
+    });
+    const snapshots: SceneSnapshot[] = [];
+    controller.setChangeListener((snapshot) => {
+      snapshots.push(snapshot);
+    });
+
+    controller.replaceFromBrowser(
+      {
+        nodes: [
+          {
+            id: "observability",
+            type: "group",
+            x: 103,
+            y: 197,
+            width: 522,
+            height: 358,
+            label: "Observability",
+          },
+        ],
+        edges: [],
+      },
+      { selectedIds: ["observability"] },
+    );
+
+    expect(controller.currentVersion()).toBe(1);
+    expect(snapshots).toEqual([]);
+    expect(controller.getObject("observability")).toMatchObject({
+      id: "observability",
+      x: 100,
+      y: 200,
+      width: 520,
+      height: 360,
+    });
+  });
+
   it("undoes a server mutation after an identical browser echo", () => {
     const controller = new CanvasController(createJsonCanvasPlugin());
 

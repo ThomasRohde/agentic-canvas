@@ -1,0 +1,37 @@
+{
+  "type": "agentic-flow",
+  "version": 1,
+  "settings": {
+    "acyclic": true
+  },
+  "nodes": [
+    {
+      "id": "a",
+      "type": "service",
+      "label": "A",
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "b",
+      "type": "service",
+      "label": "B",
+      "x": 200,
+      "y": 0
+    }
+  ],
+  "edges": [
+    {
+      "id": "ab",
+      "type": "calls",
+      "source": "a",
+      "target": "b"
+    },
+    {
+      "id": "ba",
+      "type": "calls",
+      "source": "b",
+      "target": "a"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CanvasApp } from "./CanvasApp.js";
+import { FlowCanvasApp } from "./canvases/flow/FlowCanvasApp.js";
 import { JsonCanvasApp } from "./canvases/jsoncanvas/JsonCanvasApp.js";
 
 interface CanvasInfo {
@@ -36,6 +37,10 @@ export function App() {
 
   if (canvasInfo.canvas === "jsoncanvas") {
     return <JsonCanvasApp mcpUrl={canvasInfo.mcpUrl} />;
+  }
+
+  if (canvasInfo.canvas === "flow") {
+    return <FlowCanvasApp mcpUrl={canvasInfo.mcpUrl} />;
   }
 
   return <CanvasApp />;

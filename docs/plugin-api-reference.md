@@ -103,8 +103,10 @@ export interface SerializedScene {
 ```
 
 JSON Canvas writes standards-compatible `.canvas` documents without the Excalidraw
-envelope. New plugins should maintain a stable file format and validate enough
-structure to reject unusable files with clear errors.
+envelope. Flow writes stable pretty JSON `.flow` documents with
+`type:"agentic-flow"`, `version:1`, typed nodes, optional ports, typed edges, and
+optional settings. New plugins should maintain a stable file format and validate
+enough structure to reject unusable files with clear errors.
 
 ## Normalized Objects
 
@@ -345,6 +347,17 @@ to `360x180`, file/link cards to `360x120`, groups to `520x360`, and
 spacing is a gap added to measured card extents. Self-loop and parallel edges are
 allowed, but edge mutation results may include advisory `warnings`; warnings are not
 persisted into `.canvas` files.
+
+Flow plugin tools keep Agentic Canvas-native graph semantics. The Flow plugin does
+not implement generic shape-object creation or updates, so MCP clients should use
+`add_flow_node`, `add_port`, `connect_flow_nodes`, `update_flow_node`,
+`update_flow_edge`, `find_flow_nodes`, `find_flow_edges`, traversal tools,
+`validate_flow`, `auto_layout_flow`, `export_mermaid`, and `apply_flow_patch`.
+Flow validation enforces unique ids, valid node/port references, compatible port
+directions, and acyclic graphs when strict validation is requested. Browser state
+such as selection and React Flow measurements is not persisted beyond the semantic
+`.flow` document. Flow is not a BPMN, ArchiMate, UML, or C4 standards
+implementation in v1.
 
 Plugin tools must not redefine baseline tool names. Use plugin-specific names for
 engine-native operations and higher-level workflows.

@@ -6,6 +6,14 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.6.0 - 2026-06-15
+
+- Added the `flow` backend with Agentic Canvas-native `.flow` documents, typed nodes, ports, edges, validation/repair, deterministic layout, graph traversal, and Mermaid export.
+- Added Flow-specific MCP tools for node, port, and edge CRUD, search, upstream/downstream/path/cycle traversal, `validate_flow`, `auto_layout_flow`, `export_mermaid`, and transactional `apply_flow_patch`.
+- Added a React Flow browser renderer for Flow with WebSocket sync, browser editing, selection, screenshot export, inspector editing, and port-aware edge rendering.
+- Registered Flow in the static canvas registry, CLI, browser router, docs, and capability guidance while keeping generic shape tools hidden for Flow.
+- Expanded Flow format, validation, adapter, graph, layout, Mermaid, MCP, WebSocket, browser-render, and capability tests.
+
 ## 0.5.1 - 2026-06-15
 
 - Fixed JSON Canvas auto-layout spacing so explicit small `layerSpacing` values do not overlap cards.

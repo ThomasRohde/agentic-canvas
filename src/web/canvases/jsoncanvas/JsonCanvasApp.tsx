@@ -35,8 +35,8 @@ interface JsonCanvasAppProps {
   mcpUrl: string;
 }
 
-type JsonFlowNode = Node<{ raw: JsonCanvasNode; label: string; kind: string }>;
-type JsonFlowEdge = Edge<{ raw: JsonCanvasEdge }>;
+export type JsonFlowNode = Node<{ raw: JsonCanvasNode; label: string; kind: string }>;
+export type JsonFlowEdge = Edge<{ raw: JsonCanvasEdge }>;
 
 export function JsonCanvasApp({ mcpUrl }: JsonCanvasAppProps) {
   return (
@@ -57,6 +57,8 @@ function JsonCanvasSurface({ mcpUrl }: JsonCanvasAppProps) {
   const appliedVersion = useRef(0);
   const applyingRemote = useRef(false);
   const selectedIds = useRef<string[]>([]);
+  const programmaticSelection = useRef<string[] | undefined>(undefined);
+  const programmaticSelectionTimer = useRef<number | undefined>(undefined);
   const changeTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -82,6 +84,9 @@ function JsonCanvasSurface({ mcpUrl }: JsonCanvasAppProps) {
       if (changeTimer.current) {
         window.clearTimeout(changeTimer.current);
       }
+      if (programmaticSelectionTimer.current) {
+        window.clearTimeout(programmaticSelectionTimer.current);
+      }
     };
   }, []);
 
@@ -105,17 +110,25 @@ function JsonCanvasSurface({ mcpUrl }: JsonCanvasAppProps) {
   };
 
   const onNodesChange = (changes: NodeChange<JsonFlowNode>[]) => {
+    const shouldSync = shouldSyncNodeChanges(changes);
     setNodes((current) => {
       const next = applyNodeChanges(changes, current);
-      scheduleSceneChanged(next, edgesRef.current);
+      nodesRef.current = next;
+      if (shouldSync) {
+        scheduleSceneChanged(next, edgesRef.current);
+      }
       return next;
     });
   };
 
   const onEdgesChange = (changes: EdgeChange<JsonFlowEdge>[]) => {
+    const shouldSync = shouldSyncEdgeChanges(changes);
     setEdges((current) => {
       const next = applyEdgeChanges(changes, current);
-      scheduleSceneChanged(nodesRef.current, next);
+      edgesRef.current = next;
+      if (shouldSync) {
+        scheduleSceneChanged(nodesRef.current, next);
+      }
       return next;
     });
   };
@@ -140,10 +153,19 @@ function JsonCanvasSurface({ mcpUrl }: JsonCanvasAppProps) {
   };
 
   const onSelectionChange = (selection: OnSelectionChangeParams<JsonFlowNode, JsonFlowEdge>) => {
-    selectedIds.current = [
+    const nextSelectedIds = [
       ...selection.nodes.map((node) => node.id),
       ...selection.edges.map((edge) => edge.id),
     ];
+    const expectedSelection = programmaticSelection.current;
+    const resolved = resolveSelectionChange(nextSelectedIds, expectedSelection);
+    selectedIds.current = resolved.selectedIds;
+    if (resolved.keepProgrammaticSelection) {
+      return;
+    }
+    if (expectedSelection) {
+      clearProgrammaticSelection();
+    }
   };
 
   const editNode = (_event: React.MouseEvent, node: JsonFlowNode) => {
@@ -218,10 +240,27 @@ function JsonCanvasSurface({ mcpUrl }: JsonCanvasAppProps) {
 
   const handleSelectionSetRequest = (message: SelectionSetRequestMessage) => {
     const idSet = new Set(message.selectedIds);
-    setNodes((current) => current.map((node) => ({ ...node, selected: idSet.has(node.id) })));
-    setEdges((current) => current.map((edge) => ({ ...edge, selected: idSet.has(edge.id) })));
+    const nextNodes = nodesRef.current.map((node) => ({ ...node, selected: idSet.has(node.id) }));
+    const nextEdges = edgesRef.current.map((edge) => ({ ...edge, selected: idSet.has(edge.id) }));
+    nodesRef.current = nextNodes;
+    edgesRef.current = nextEdges;
     selectedIds.current = message.selectedIds;
+    programmaticSelection.current = message.selectedIds;
+    if (programmaticSelectionTimer.current) {
+      window.clearTimeout(programmaticSelectionTimer.current);
+    }
+    programmaticSelectionTimer.current = window.setTimeout(clearProgrammaticSelection, 500);
+    setNodes(nextNodes);
+    setEdges(nextEdges);
     clientRef.current?.sendSelectionSetResult(message.id, message.selectedIds);
+  };
+
+  const clearProgrammaticSelection = () => {
+    programmaticSelection.current = undefined;
+    if (programmaticSelectionTimer.current) {
+      window.clearTimeout(programmaticSelectionTimer.current);
+      programmaticSelectionTimer.current = undefined;
+    }
   };
 
   const nodeTypes = useMemo(() => ({ jsonCanvasCard: JsonCanvasNodeCard }), []);
@@ -309,7 +348,10 @@ function toFlowEdge(edge: JsonCanvasEdge, selected?: boolean): JsonFlowEdge {
   };
 }
 
-function toJsonCanvasDocument(nodes: JsonFlowNode[], edges: JsonFlowEdge[]): JsonCanvasDocument {
+export function toJsonCanvasDocument(
+  nodes: JsonFlowNode[],
+  edges: JsonFlowEdge[],
+): JsonCanvasDocument {
   return {
     nodes: nodes.map((node) => {
       const raw = node.data.raw;
@@ -317,8 +359,8 @@ function toJsonCanvasDocument(nodes: JsonFlowNode[], edges: JsonFlowEdge[]): Jso
         ...raw,
         x: Math.round(node.position.x),
         y: Math.round(node.position.y),
-        width: Math.round(readDimension(node.width, raw.width)),
-        height: Math.round(readDimension(node.height, raw.height)),
+        width: Math.round(raw.width),
+        height: Math.round(raw.height),
       };
     }),
     edges: edges.map((edge) => ({
@@ -397,10 +439,6 @@ function handleToSide(value: string | null | undefined): JsonCanvasEdge["fromSid
     : undefined;
 }
 
-function readDimension(value: number | string | undefined, fallback: number): number {
-  return typeof value === "number" ? value : fallback;
-}
-
 function exportJsonCanvasToPng(document: JsonCanvasDocument, padding: number) {
   const nodes = document.nodes ?? [];
   const canvas = globalThis.document.createElement("canvas");
@@ -447,6 +485,47 @@ function exportJsonCanvasToPng(document: JsonCanvasDocument, padding: number) {
     mimeType: "image/png",
     base64: canvas.toDataURL("image/png").split(",")[1] ?? "",
   };
+}
+
+export function shouldSyncNodeChanges(changes: NodeChange<JsonFlowNode>[]): boolean {
+  return changes.some((change) => {
+    if (change.type === "select" || change.type === "dimensions") {
+      return false;
+    }
+    return true;
+  });
+}
+
+export function shouldSyncEdgeChanges(changes: EdgeChange<JsonFlowEdge>[]): boolean {
+  return changes.some((change) => change.type !== "select");
+}
+
+export function resolveSelectionChange(
+  nextSelectedIds: string[],
+  expectedProgrammaticSelection?: string[],
+): { selectedIds: string[]; keepProgrammaticSelection: boolean } {
+  if (
+    expectedProgrammaticSelection &&
+    !sameStringSet(nextSelectedIds, expectedProgrammaticSelection)
+  ) {
+    return {
+      selectedIds: expectedProgrammaticSelection,
+      keepProgrammaticSelection: true,
+    };
+  }
+
+  return {
+    selectedIds: nextSelectedIds,
+    keepProgrammaticSelection: false,
+  };
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const rightIds = new Set(right);
+  return left.every((id) => rightIds.has(id));
 }
 
 function boundsForNodes(nodes: JsonCanvasNode[]): {

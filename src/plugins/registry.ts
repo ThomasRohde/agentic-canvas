@@ -1,10 +1,12 @@
 import type { CanvasPlugin } from "../core/plugin.js";
 import { createExcalidrawPlugin } from "./excalidraw/index.js";
+import { createFlowPlugin } from "./flow/index.js";
 import { createJsonCanvasPlugin } from "./jsoncanvas/index.js";
 
 export const canvasPlugins = {
   excalidraw: createExcalidrawPlugin,
   jsoncanvas: createJsonCanvasPlugin,
+  flow: createFlowPlugin,
 } satisfies Record<string, () => CanvasPlugin>;
 
 export type CanvasPluginKey = keyof typeof canvasPlugins;

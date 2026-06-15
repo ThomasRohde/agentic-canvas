@@ -2,8 +2,8 @@
 
 Agentic Canvas has an internal canvas plugin boundary. A plugin owns the native scene
 format for one canvas engine and maps that format to the normalized objects used by
-baseline MCP tools. The current application ships the `excalidraw` and `jsoncanvas`
-plugins.
+baseline MCP tools. The current application ships the `excalidraw`, `jsoncanvas`,
+and `flow` plugins.
 
 This is a static, in-repo runtime plugin model. There is no dynamic plugin marketplace, remote
 registry, runtime loader, authentication layer, database, telemetry system, or stdio
@@ -42,13 +42,16 @@ Use one directory per plugin:
 src/plugins/<name>/
   index.ts        CanvasPlugin implementation and scene operations
   adapter.ts      Native element to CanvasObject/CanvasObjectSummary mapping
-  elements.ts     Native element builders and defaults
+  elements.ts     Native element builders and defaults, when needed
   format.ts       serialize/deserialize helpers
+  validation.ts   optional native document validation and repair helpers
   tools.ts        optional plugin-specific MCP tools
 ```
 
-Small plugins can combine helpers, but keep `index.ts` as the public entrypoint. The
-existing `src/plugins/excalidraw` directory is the reference implementation.
+Small plugins can combine helpers, but keep `index.ts` as the public entrypoint.
+The existing `src/plugins/excalidraw`, `src/plugins/jsoncanvas`, and
+`src/plugins/flow` directories show the three current styles: freeform shapes,
+portable cards, and typed Agentic Canvas-native graphs.
 
 Add focused tests next to existing plugin tests:
 
@@ -183,7 +186,11 @@ object creation and updates:
 
 Plugin tools are optional and engine-specific. Excalidraw currently adds tools such
 as `draw_rectangle`, `draw_arrow`, `create_frame`, `group_objects`,
-`ungroup_objects`, `remove_from_frame`, and `create_flowchart`.
+`ungroup_objects`, `remove_from_frame`, and `create_flowchart`. JSON Canvas adds
+card and edge tools such as `add_text_card`, `connect_cards`, and
+`apply_jsoncanvas_patch`. Flow adds graph tools such as `add_flow_node`,
+`add_port`, `connect_flow_nodes`, graph traversal, `validate_flow`,
+`auto_layout_flow`, `export_mermaid`, and `apply_flow_patch`.
 
 Use baseline tools for common object operations. Add plugin tools only when they
 provide a better engine-native workflow or a higher-level operation.
@@ -192,6 +199,13 @@ right workflow for the active canvas.
 Plugin authors do not implement `get_selected_objects` or `select_objects` on the
 Node side; browser code reads or applies selected ids and the shared baseline tools
 resolve ids through `CanvasController`.
+
+Plugins that do not implement the shared shape-object contract should omit
+`createObject` and `updateObject`. In that case `create_object`, `update_object`,
+`find_objects`, `apply_canvas_patch`, and `set_canvas_background` are not
+registered. Flow intentionally follows this model because its typed nodes, ports,
+edges, validation, traversal, and Mermaid export are better represented by
+Flow-specific tools than by generic shape operations.
 
 ## Verification Checklist
 

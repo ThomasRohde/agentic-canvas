@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildMcpServer } from "../src/mcp/buildServer.js";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
+import { createFlowPlugin } from "../src/plugins/flow/index.js";
 import { createJsonCanvasPlugin } from "../src/plugins/jsoncanvas/index.js";
 import { CanvasController } from "../src/server/canvasController.js";
 import { Workspace } from "../src/server/workspace.js";
@@ -72,8 +73,31 @@ describe("MCP canvas capabilities", () => {
     expect(capabilities.destructiveTools).toEqual(["delete_object", "clear_canvas", "open_canvas"]);
   });
 
+  it("advertises Flow graph workflows without generic shape tools", async () => {
+    const capabilities = await getCapabilities(createFlowPlugin());
+
+    expect(capabilities.canvas).toBe("flow");
+    expect(capabilities.fileExtension).toBe(".flow");
+    expect(capabilities.baselineTools).toContain("get_canvas_state");
+    expect(capabilities.baselineTools).toContain("get_canvas_capabilities");
+    expect(capabilities.genericObjectTools).toEqual([]);
+    expect(capabilities.pluginTools).toContain("add_flow_node");
+    expect(capabilities.pluginTools).toContain("connect_flow_nodes");
+    expect(capabilities.pluginTools).toContain("apply_flow_patch");
+    expect(capabilities.pluginTools).toContain("export_mermaid");
+    expect(capabilities.pluginTools).not.toContain("draw_rectangle");
+    expect(capabilities.pluginTools).not.toContain("add_text_card");
+    expect(capabilities.preferredTools.create).toContain("add_flow_node");
+    expect(capabilities.preferredTools.create).toContain("apply_flow_patch");
+    expect(capabilities.preferredTools.connect).toEqual(["connect_flow_nodes"]);
+    expect(capabilities.destructiveTools).toEqual(["delete_object", "clear_canvas", "open_canvas"]);
+  });
+
   async function getCapabilities(
-    plugin: ReturnType<typeof createExcalidrawPlugin> | ReturnType<typeof createJsonCanvasPlugin>,
+    plugin:
+      | ReturnType<typeof createExcalidrawPlugin>
+      | ReturnType<typeof createJsonCanvasPlugin>
+      | ReturnType<typeof createFlowPlugin>,
   ): Promise<CapabilitiesResponse> {
     const controller = new CanvasController(plugin);
     const server = buildMcpServer({

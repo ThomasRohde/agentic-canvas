@@ -1,0 +1,21 @@
+{
+  "type": "agentic-flow",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "a",
+      "type": "service",
+      "label": "A",
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "edges": [
+    {
+      "id": "missing",
+      "type": "calls",
+      "source": "a",
+      "target": "missing-node"
+    }
+  ]
+}

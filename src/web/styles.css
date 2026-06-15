@@ -79,6 +79,148 @@ body {
   fill: #f8fafc;
 }
 
+.flow-surface {
+  position: relative;
+  background: #f8fafc;
+}
+
+.flow-surface .react-flow__node {
+  box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.flow-node-card,
+.flow-boundary-card {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  background: #fffef7;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.flow-boundary-card {
+  border-style: dashed;
+  background: rgba(226, 232, 240, 0.55);
+}
+
+.flow-node-heading {
+  display: grid;
+  gap: 3px;
+}
+
+.flow-node-heading span,
+.flow-boundary-card span,
+.flow-node-tags {
+  color: #475569;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.flow-node-heading strong,
+.flow-boundary-card strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.flow-node-card p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+  color: #334155;
+  line-height: 1.25;
+}
+
+.flow-node-at-risk,
+.flow-node-risk {
+  background: #fee2e2;
+}
+
+.flow-node-database {
+  background: #dbeafe;
+}
+
+.flow-node-queue,
+.flow-node-topic {
+  background: #dcfce7;
+}
+
+.flow-node-control {
+  background: #ffedd5;
+}
+
+.flow-port {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #334155;
+  background: #f8fafc;
+}
+
+.flow-inspector {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  display: grid;
+  gap: 8px;
+  width: min(260px, calc(100vw - 32px));
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.flow-inspector:empty {
+  display: none;
+}
+
+.flow-inspector input,
+.flow-inspector select,
+.flow-inspector textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 12px;
+}
+
+.flow-inspector textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.flow-inspector-ports,
+.flow-inspector-port {
+  display: grid;
+  gap: 6px;
+}
+
+.flow-inspector-port {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.flow-inspector button {
+  min-height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #0f172a;
+  font: inherit;
+  font-size: 12px;
+}
+
 .canvas-shell .sidebar-trigger__label-element[title="Library"] {
   display: none;
 }

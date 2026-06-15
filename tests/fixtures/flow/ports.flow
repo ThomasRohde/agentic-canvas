@@ -1,0 +1,44 @@
+{
+  "type": "agentic-flow",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "source",
+      "type": "service",
+      "label": "Source",
+      "x": 0,
+      "y": 0,
+      "ports": [
+        {
+          "id": "out",
+          "direction": "out",
+          "side": "right"
+        }
+      ]
+    },
+    {
+      "id": "target",
+      "type": "queue",
+      "label": "Target Queue",
+      "x": 360,
+      "y": 0,
+      "ports": [
+        {
+          "id": "in",
+          "direction": "in",
+          "side": "left"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge",
+      "type": "publishes",
+      "source": "source",
+      "sourcePort": "out",
+      "target": "target",
+      "targetPort": "in"
+    }
+  ]
+}

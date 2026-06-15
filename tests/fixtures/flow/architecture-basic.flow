@@ -1,0 +1,94 @@
+{
+  "type": "agentic-flow",
+  "version": 1,
+  "settings": {
+    "direction": "LR",
+    "acyclic": true,
+    "domain": "architecture"
+  },
+  "nodes": [
+    {
+      "id": "node_checkout",
+      "type": "service",
+      "label": "Checkout Service",
+      "description": "Starts payment authorization.",
+      "x": 0,
+      "y": 0,
+      "width": 220,
+      "height": 90,
+      "status": "active",
+      "ports": [
+        {
+          "id": "out_auth",
+          "label": "authorize",
+          "direction": "out",
+          "side": "right",
+          "protocol": "HTTPS"
+        }
+      ]
+    },
+    {
+      "id": "node_auth",
+      "type": "service",
+      "label": "Payment Authorization",
+      "x": 360,
+      "y": 0,
+      "width": 220,
+      "height": 90,
+      "status": "active",
+      "ports": [
+        {
+          "id": "in_auth",
+          "direction": "in",
+          "side": "left",
+          "protocol": "HTTPS"
+        },
+        {
+          "id": "out_db",
+          "direction": "out",
+          "side": "right",
+          "protocol": "SQL"
+        }
+      ]
+    },
+    {
+      "id": "node_ledger",
+      "type": "database",
+      "label": "Payment Ledger",
+      "x": 720,
+      "y": 0,
+      "width": 200,
+      "height": 90,
+      "status": "active",
+      "ports": [
+        {
+          "id": "in_write",
+          "direction": "in",
+          "side": "left",
+          "protocol": "SQL"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_checkout_auth",
+      "type": "calls",
+      "source": "node_checkout",
+      "sourcePort": "out_auth",
+      "target": "node_auth",
+      "targetPort": "in_auth",
+      "label": "authorize payment",
+      "status": "active"
+    },
+    {
+      "id": "edge_auth_ledger",
+      "type": "writes",
+      "source": "node_auth",
+      "sourcePort": "out_db",
+      "target": "node_ledger",
+      "targetPort": "in_write",
+      "label": "write payment"
+    }
+  ]
+}

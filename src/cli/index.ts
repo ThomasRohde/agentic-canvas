@@ -64,10 +64,11 @@ async function main(): Promise<void> {
 function printHelp(): void {
   console.log(`${CLI_NAME}
 
-Start a local Excalidraw canvas with an MCP Streamable HTTP endpoint.
+Start a local Agentic Canvas with an MCP Streamable HTTP endpoint.
 
 Usage:
   npx ${PACKAGE_NAME} --canvas excalidraw
+  npx ${PACKAGE_NAME} --canvas flow
   ${CLI_NAME} --canvas excalidraw
 
 Options:

@@ -1,0 +1,33 @@
+{
+  "type": "agentic-flow",
+  "version": 1,
+  "settings": {
+    "domain": "risk-control",
+    "strictValidation": true
+  },
+  "nodes": [
+    {
+      "id": "risk_fraud",
+      "type": "risk",
+      "label": "Fraud risk",
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "control_review",
+      "type": "control",
+      "label": "Manual review",
+      "x": 320,
+      "y": 0
+    }
+  ],
+  "edges": [
+    {
+      "id": "control_mitigates_risk",
+      "type": "mitigates",
+      "source": "control_review",
+      "target": "risk_fraud",
+      "label": "mitigates"
+    }
+  ]
+}

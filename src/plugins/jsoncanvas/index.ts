@@ -12,10 +12,17 @@ import type {
 } from "../../core/scene.js";
 import { getJsonCanvasObject, listJsonCanvasObjects } from "./adapter.js";
 import { deserializeJsonCanvasDocument, serializeJsonCanvasDocument } from "./format.js";
-import type { JsonCanvasAppState, JsonCanvasDocument } from "./model.js";
+import type {
+  JsonCanvasAppState,
+  JsonCanvasDocument,
+  JsonCanvasEdge,
+  JsonCanvasNode,
+} from "./model.js";
 import { JSON_CANVAS_EXTENSION } from "./model.js";
 import { registerJsonCanvasTools } from "./tools.js";
 import { validateJsonCanvasDocument } from "./validation.js";
+
+const BROWSER_GEOMETRY_EPSILON = 4;
 
 export function createJsonCanvasPlugin(): CanvasPlugin {
   return {
@@ -144,10 +151,14 @@ function clear(scene: Scene): void {
 function normalizeBrowserScene(
   incomingNative: unknown,
   appState: unknown,
+  currentScene: Scene,
 ): { native: JsonCanvasDocument; appState: Record<string, unknown> } {
   const result = validateJsonCanvasDocument(incomingNative);
+  const currentDocument = native(currentScene);
   return {
-    native: result.document,
+    native: isTinyGeometryOnlyEcho(result.document, currentDocument)
+      ? currentDocument
+      : result.document,
     appState: browserAppState(appState),
   };
 }
@@ -179,4 +190,90 @@ function registerTools(_server: McpServer, _context: PluginToolContext): void {
 
 function native(scene: Scene): JsonCanvasDocument {
   return scene.native as JsonCanvasDocument;
+}
+
+function isTinyGeometryOnlyEcho(
+  incoming: JsonCanvasDocument,
+  current: JsonCanvasDocument,
+): boolean {
+  const incomingNodes = incoming.nodes ?? [];
+  const currentNodes = current.nodes ?? [];
+  const incomingEdges = incoming.edges ?? [];
+  const currentEdges = current.edges ?? [];
+
+  if (
+    incomingNodes.length !== currentNodes.length ||
+    incomingEdges.length !== currentEdges.length
+  ) {
+    return false;
+  }
+
+  const currentNodesById = new Map(currentNodes.map((node) => [node.id, node]));
+  for (const incomingNode of incomingNodes) {
+    const currentNode = currentNodesById.get(incomingNode.id);
+    if (!currentNode) {
+      return false;
+    }
+    if (!sameNodeContent(incomingNode, currentNode)) {
+      return false;
+    }
+    if (
+      !near(incomingNode.x, currentNode.x) ||
+      !near(incomingNode.y, currentNode.y) ||
+      !near(incomingNode.width, currentNode.width) ||
+      !near(incomingNode.height, currentNode.height)
+    ) {
+      return false;
+    }
+  }
+
+  const currentEdgesById = new Map(currentEdges.map((edge) => [edge.id, edge]));
+  for (const incomingEdge of incomingEdges) {
+    const currentEdge = currentEdgesById.get(incomingEdge.id);
+    if (!currentEdge || !sameEdge(incomingEdge, currentEdge)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sameNodeContent(left: JsonCanvasNode, right: JsonCanvasNode): boolean {
+  if (left.type !== right.type || left.color !== right.color) {
+    return false;
+  }
+  if (left.type === "text" && right.type === "text") {
+    return left.text === right.text;
+  }
+  if (left.type === "file" && right.type === "file") {
+    return left.file === right.file && left.subpath === right.subpath;
+  }
+  if (left.type === "link" && right.type === "link") {
+    return left.url === right.url;
+  }
+  if (left.type === "group" && right.type === "group") {
+    return (
+      left.label === right.label &&
+      left.background === right.background &&
+      left.backgroundStyle === right.backgroundStyle
+    );
+  }
+  return false;
+}
+
+function sameEdge(left: JsonCanvasEdge, right: JsonCanvasEdge): boolean {
+  return (
+    left.fromNode === right.fromNode &&
+    left.toNode === right.toNode &&
+    left.fromSide === right.fromSide &&
+    left.toSide === right.toSide &&
+    left.fromEnd === right.fromEnd &&
+    left.toEnd === right.toEnd &&
+    left.color === right.color &&
+    left.label === right.label
+  );
+}
+
+function near(left: number, right: number): boolean {
+  return Math.abs(left - right) <= BROWSER_GEOMETRY_EPSILON;
 }
