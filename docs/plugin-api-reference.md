@@ -282,9 +282,10 @@ generic object creation and updates:
 - `update_object`
 - `set_canvas_background`
 
-`get_canvas_state` returns scene metadata plus server package metadata. The scene
-counter remains `version`; the npm package version is returned separately as
-`serverVersion`:
+`get_canvas_state` returns scene metadata plus server package metadata. The
+monotonic authoritative scene revision counter remains `version`; it is not a
+package version, scene hash, or optimistic-concurrency token. The npm package
+version is returned separately as `serverVersion`:
 
 ```json
 {
@@ -324,10 +325,11 @@ text:
 }
 ```
 
-Selection is live browser state, not authoritative scene state. If the browser
-reports ids that no longer exist in the server scene, they are returned in
-`missingIds`. An empty selection returns empty arrays. No connected browser, browser
-errors, and request timeouts are returned as MCP `isError` results.
+Selection is live browser state, not authoritative scene state. It is not persisted
+in saved canvas files, and mutations or undo/redo may clear it in the browser. If
+the browser reports ids that no longer exist in the server scene, they are returned
+in `missingIds`. An empty selection returns empty arrays. No connected browser,
+browser errors, and request timeouts are returned as MCP `isError` results.
 
 `select_objects` accepts `{ ids: string[] }`, filters ids through the authoritative
 scene, sends existing ids to the connected browser, and returns `{ selectedIds,
@@ -336,6 +338,13 @@ missingIds }`. It does not mutate the scene version.
 `set_canvas_background` accepts a validated canvas color string and updates
 `Scene.appState.viewBackgroundColor`. `undo` and `redo` operate on the controller's
 bounded in-memory scene history and are not persisted across process restarts.
+
+JSON Canvas plugin tools keep JSON Canvas-compatible semantics: text cards default
+to `360x180`, file/link cards to `360x120`, groups to `520x360`, and
+`connect_cards.toEnd` defaults to `"arrow"` unless callers pass `"none"`. Layout
+spacing is a gap added to measured card extents. Self-loop and parallel edges are
+allowed, but edge mutation results may include advisory `warnings`; warnings are not
+persisted into `.canvas` files.
 
 Plugin tools must not redefine baseline tool names. Use plugin-specific names for
 engine-native operations and higher-level workflows.

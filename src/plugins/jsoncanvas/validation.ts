@@ -23,6 +23,13 @@ export class JsonCanvasValidationError extends Error {
   }
 }
 
+interface NormalizationContext {
+  repair: boolean;
+  issues: string[];
+  warnings: string[];
+  usedIds: Set<string>;
+}
+
 const NODE_TYPES = new Set(["text", "file", "link", "group"]);
 const SIDES = new Set(["top", "right", "bottom", "left"]);
 const ENDS = new Set(["none", "arrow"]);
@@ -52,17 +59,16 @@ export function validateJsonCanvasDocument(
     throw new JsonCanvasValidationError(issues);
   }
 
-  const nodes = normalizeNodes(Array.isArray(nodesInput) ? nodesInput : [], {
+  const context: NormalizationContext = {
     repair,
     issues,
     warnings,
-  });
+    usedIds: new Set<string>(),
+  };
+
+  const nodes = normalizeNodes(Array.isArray(nodesInput) ? nodesInput : [], context);
   const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = normalizeEdges(Array.isArray(edgesInput) ? edgesInput : [], nodeIds, {
-    repair,
-    issues,
-    warnings,
-  });
+  const edges = normalizeEdges(Array.isArray(edgesInput) ? edgesInput : [], nodeIds, context);
 
   if (issues.length > 0 && !repair) {
     throw new JsonCanvasValidationError(issues);
@@ -74,30 +80,25 @@ export function validateJsonCanvasDocument(
   };
 }
 
-function normalizeNodes(
-  values: unknown[],
-  context: { repair: boolean; issues: string[]; warnings: string[] },
-): JsonCanvasNode[] {
+function normalizeNodes(values: unknown[], context: NormalizationContext): JsonCanvasNode[] {
   const nodes: JsonCanvasNode[] = [];
-  const ids = new Set<string>();
   for (const [index, value] of values.entries()) {
     const node = normalizeNode(value, index, context);
     if (!node) {
       continue;
     }
 
-    if (ids.has(node.id)) {
-      const issue = `Duplicate node id: ${node.id}`;
-      if (!context.repair) {
-        context.issues.push(issue);
-        continue;
-      }
-      const nextId = createJsonCanvasId(node.type === "group" ? "group" : "card");
-      context.warnings.push(`${issue}; reassigned to ${nextId}`);
-      node.id = nextId;
+    const nextId = reserveId(
+      node.id,
+      `Duplicate node id: ${node.id}`,
+      node.type === "group" ? "group" : "card",
+      context,
+    );
+    if (!nextId) {
+      continue;
     }
 
-    ids.add(node.id);
+    node.id = nextId;
     nodes.push(node);
   }
   return nodes;
@@ -106,7 +107,7 @@ function normalizeNodes(
 function normalizeNode(
   value: unknown,
   index: number,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
 ): JsonCanvasNode | undefined {
   if (!isRecord(value)) {
     return rejectOrSkip(`Node at index ${index} must be an object`, context);
@@ -189,7 +190,7 @@ function normalizeNode(
 function normalizeEdges(
   values: unknown[],
   nodeIds: Set<string>,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
 ): JsonCanvasEdge[] {
   const edges: JsonCanvasEdge[] = [];
   const edgeIds = new Set<string>();
@@ -202,6 +203,19 @@ function normalizeEdges(
     const id = stringField(value, "id", context, createJsonCanvasId("edge"));
     const fromNode = stringField(value, "fromNode", context, "");
     const toNode = stringField(value, "toNode", context, "");
+    const hasDuplicateEdgeId = edgeIds.has(id);
+    const hasGlobalCollision = context.usedIds.has(id);
+    let nextId = id;
+    if (hasDuplicateEdgeId || hasGlobalCollision) {
+      const issue = hasDuplicateEdgeId ? `Duplicate edge id: ${id}` : `Duplicate id: ${id}`;
+      if (!context.repair) {
+        context.issues.push(issue);
+      } else {
+        nextId = uniqueRepairId(id, context.usedIds);
+        context.warnings.push(`${issue}; reassigned to ${nextId}`);
+      }
+    }
+    edgeIds.add(id);
     if (!nodeIds.has(fromNode) || !nodeIds.has(toNode)) {
       const issue = `Edge ${id} references missing node`;
       if (!context.repair) {
@@ -211,18 +225,12 @@ function normalizeEdges(
       }
       continue;
     }
-
-    const edge: JsonCanvasEdge = { id, fromNode, toNode };
-    if (edgeIds.has(edge.id)) {
-      if (!context.repair) {
-        context.issues.push(`Duplicate edge id: ${edge.id}`);
-      } else {
-        const nextId = createJsonCanvasId("edge");
-        context.warnings.push(`Duplicate edge id: ${edge.id}; reassigned to ${nextId}`);
-        edge.id = nextId;
-      }
+    if ((hasDuplicateEdgeId || hasGlobalCollision) && !context.repair) {
+      continue;
     }
-    edgeIds.add(edge.id);
+
+    const edge: JsonCanvasEdge = { id: nextId, fromNode, toNode };
+    context.usedIds.add(edge.id);
 
     assignOptionalSide(edge, "fromSide", value.fromSide, context);
     assignOptionalSide(edge, "toSide", value.toSide, context);
@@ -241,10 +249,41 @@ function normalizeEdges(
   return edges;
 }
 
+function reserveId(
+  id: string,
+  issue: string,
+  prefix: "card" | "group" | "edge",
+  context: NormalizationContext,
+): string | undefined {
+  if (!context.usedIds.has(id)) {
+    context.usedIds.add(id);
+    return id;
+  }
+  if (!context.repair) {
+    context.issues.push(issue);
+    return undefined;
+  }
+  const nextId = uniqueRepairId(id || createJsonCanvasId(prefix), context.usedIds);
+  context.usedIds.add(nextId);
+  context.warnings.push(`${issue}; reassigned to ${nextId}`);
+  return nextId;
+}
+
+function uniqueRepairId(id: string, usedIds: Set<string>): string {
+  const base = id.trim() || "id";
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${base}_${suffix}`;
+    if (!usedIds.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base}_${Date.now()}`;
+}
+
 function stringField(
   value: Record<string, unknown>,
   field: string,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
   fallback: string,
 ): string {
   const candidate = value[field];
@@ -263,7 +302,7 @@ function stringField(
 function integerField(
   value: Record<string, unknown>,
   field: string,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
   fallback: number,
 ): number {
   const candidate = value[field];
@@ -286,7 +325,7 @@ function integerField(
 function dimensionField(
   value: Record<string, unknown>,
   field: string,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
   fallback: number,
 ): number {
   const next = integerField(value, field, context, fallback);
@@ -308,7 +347,7 @@ function optionalString(value: Record<string, unknown>, field: string): string |
 
 function validColorOrRepair(
   color: string,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
 ): color is NonNullable<JsonCanvasEdge["color"]> {
   if (isJsonCanvasColor(color)) {
     return true;
@@ -325,7 +364,7 @@ function assignOptionalSide(
   edge: JsonCanvasEdge,
   field: "fromSide" | "toSide",
   value: unknown,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
 ): void {
   if (value === undefined) {
     return;
@@ -343,7 +382,7 @@ function assignOptionalEnd(
   edge: JsonCanvasEdge,
   field: "fromEnd" | "toEnd",
   value: unknown,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
+  context: NormalizationContext,
 ): void {
   if (value === undefined) {
     return;
@@ -357,10 +396,7 @@ function assignOptionalEnd(
   }
 }
 
-function rejectOrSkip<T>(
-  issue: string,
-  context: { repair: boolean; issues: string[]; warnings: string[] },
-): T | undefined {
+function rejectOrSkip<T>(issue: string, context: NormalizationContext): T | undefined {
   if (!context.repair) {
     context.issues.push(issue);
   } else {

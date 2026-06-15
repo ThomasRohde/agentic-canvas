@@ -15,7 +15,7 @@ transport.
    canvas names.
 2. `startHttpServer` creates the selected `CanvasPlugin`, a `CanvasController`, and a
    `WsBridge`.
-3. `CanvasController` owns the authoritative `Scene` and version number.
+3. `CanvasController` owns the authoritative `Scene` and monotonic scene revision.
 4. `buildMcpServer` registers baseline MCP tools, then calls `plugin.registerTools`.
 5. Baseline tools call the plugin through `CanvasController` for normalized object
    operations.
@@ -25,6 +25,10 @@ transport.
 7. The WebSocket bridge sends scene snapshots to the browser, accepts browser scene
    replacements, and handles browser-bound requests such as screenshot export and
    current selection lookup.
+
+The scene revision is an operation/revision counter, not a package version or scene
+hash. Browser selection is ephemeral UI state; plugins should not persist it in
+canvas files.
 
 The Node side must stay browser-runtime free. Do not import browser-only canvas
 packages from server, MCP, core, or plugin Node code. The Excalidraw runtime API is

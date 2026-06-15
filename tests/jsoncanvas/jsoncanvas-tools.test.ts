@@ -73,6 +73,87 @@ describe("JSON Canvas MCP tools", () => {
     }
   });
 
+  it("uses layout spacing as a gap so explicit small values do not overlap cards", async () => {
+    const { client, close, controller } = await connectJsonCanvas(workspace);
+
+    try {
+      await client.callTool({
+        name: "apply_jsoncanvas_patch",
+        arguments: {
+          createNodes: ["A", "B", "C", "D"].map((id, index) => ({
+            id,
+            type: "text",
+            x: index * 10,
+            y: 0,
+            width: 360,
+            height: 100,
+            text: id,
+          })),
+          createEdges: [
+            { id: "AB", fromNode: "A", toNode: "B" },
+            { id: "BC", fromNode: "B", toNode: "C" },
+            { id: "CD", fromNode: "C", toNode: "D" },
+          ],
+        },
+      });
+
+      await client.callTool({
+        name: "auto_layout_cards",
+        arguments: { direction: "right", layerSpacing: 100, nodeSpacing: 40 },
+      });
+      expect(["A", "B", "C", "D"].map((id) => controller.getObject(id)?.x)).toEqual([
+        0, 460, 920, 1380,
+      ]);
+
+      await client.callTool({
+        name: "auto_layout_cards",
+        arguments: { direction: "down", layerSpacing: 25, nodeSpacing: 40 },
+      });
+      expect(["A", "B", "C", "D"].map((id) => controller.getObject(id)?.y)).toEqual([
+        0, 125, 250, 375,
+      ]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("keeps independent chain roots in the first layout layer", async () => {
+    const { client, close, controller } = await connectJsonCanvas(workspace);
+
+    try {
+      await client.callTool({
+        name: "apply_jsoncanvas_patch",
+        arguments: {
+          createNodes: ["A", "B", "C", "D"].map((id) => ({
+            id,
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 80,
+            text: id,
+          })),
+          createEdges: [
+            { id: "AB", fromNode: "A", toNode: "B" },
+            { id: "CD", fromNode: "C", toNode: "D" },
+          ],
+        },
+      });
+
+      await client.callTool({
+        name: "auto_layout_cards",
+        arguments: { direction: "right", layerSpacing: 60, nodeSpacing: 40 },
+      });
+
+      expect(controller.getObject("A")?.x).toBe(0);
+      expect(controller.getObject("C")?.x).toBe(0);
+      expect(controller.getObject("B")?.x).toBe(180);
+      expect(controller.getObject("D")?.x).toBe(180);
+    } finally {
+      await close();
+    }
+  });
+
   it("updates cards and edges with type-aware validation", async () => {
     const { client, close } = await connectJsonCanvas(workspace);
 
@@ -120,6 +201,62 @@ describe("JSON Canvas MCP tools", () => {
     }
   });
 
+  it("allows degenerate and parallel edges with advisory warnings", async () => {
+    const { client, close, controller } = await connectJsonCanvas(workspace);
+
+    try {
+      const first = jsonContent<{ id: string }>(
+        await client.callTool({ name: "add_text_card", arguments: { text: "A" } }),
+      );
+      const second = jsonContent<{ id: string }>(
+        await client.callTool({ name: "add_text_card", arguments: { text: "B" } }),
+      );
+
+      const selfLoop = jsonContent<{ id: string; warnings: string[] }>(
+        await client.callTool({
+          name: "connect_cards",
+          arguments: { fromNode: first.id, toNode: first.id },
+        }),
+      );
+      expect(selfLoop.warnings).toContain(`Edge ${selfLoop.id} is a self-loop`);
+      expect(controller.getObject(selfLoop.id)?.raw).not.toHaveProperty("warnings");
+
+      const parallel = jsonContent<{ id: string; warnings: string[] }>(
+        await client.callTool({
+          name: "connect_cards",
+          arguments: { fromNode: first.id, toNode: first.id, label: "again" },
+        }),
+      );
+      expect(parallel.warnings).toEqual(
+        expect.arrayContaining([
+          `Edge ${parallel.id} is a self-loop`,
+          `Edge ${parallel.id} is parallel to an existing edge`,
+        ]),
+      );
+
+      const edge = jsonContent<{ id: string }>(
+        await client.callTool({
+          name: "connect_cards",
+          arguments: { fromNode: first.id, toNode: second.id },
+        }),
+      );
+      const updated = jsonContent<{ warnings: string[] }>(
+        await client.callTool({
+          name: "update_edge",
+          arguments: { id: edge.id, toNode: first.id },
+        }),
+      );
+      expect(updated.warnings).toEqual(
+        expect.arrayContaining([
+          `Edge ${edge.id} is a self-loop`,
+          `Edge ${edge.id} is parallel to an existing edge`,
+        ]),
+      );
+    } finally {
+      await close();
+    }
+  });
+
   it("applies bulk patches atomically and rolls back invalid patches", async () => {
     const { client, close, controller } = await connectJsonCanvas(workspace);
 
@@ -149,6 +286,17 @@ describe("JSON Canvas MCP tools", () => {
       expect((invalid as { isError?: boolean }).isError).toBe(true);
       expect(controller.listObjects().map((object) => object.id)).toEqual(before);
       expect(controller.getObject("a")?.x).toBe(0);
+
+      const warningResult = jsonContent<{ warnings: string[] }>(
+        await client.callTool({
+          name: "apply_jsoncanvas_patch",
+          arguments: {
+            createEdges: [{ id: "loop", fromNode: "a", toNode: "a" }],
+          },
+        }),
+      );
+      expect(warningResult.warnings).toContain("Edge loop is a self-loop");
+      expect(controller.getObject("loop")?.raw).not.toHaveProperty("warnings");
     } finally {
       await close();
     }

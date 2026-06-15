@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createExcalidrawPlugin } from "../src/plugins/excalidraw/index.js";
+import { createJsonCanvasPlugin } from "../src/plugins/jsoncanvas/index.js";
+import type { JsonCanvasDocument } from "../src/plugins/jsoncanvas/model.js";
 import { CanvasController, type SceneSnapshot } from "../src/server/canvasController.js";
 
 describe("CanvasController", () => {
@@ -68,5 +70,41 @@ describe("CanvasController", () => {
     expect(controller.getObject(rectangle.id)?.x).toBe(0);
     expect(controller.redo()).toBe(true);
     expect(controller.getObject(rectangle.id)?.x).toBe(100);
+  });
+
+  it("ignores browser scene echoes that normalize to the current scene", () => {
+    const controller = new CanvasController(createJsonCanvasPlugin());
+    const snapshots: SceneSnapshot[] = [];
+    controller.setChangeListener((snapshot) => {
+      snapshots.push(snapshot);
+    });
+
+    controller.replaceFromBrowser({ nodes: [], edges: [] }, { selectedIds: ["missing"] });
+
+    expect(controller.currentVersion()).toBe(0);
+    expect(snapshots).toEqual([]);
+    expect(controller.undo()).toBe(false);
+  });
+
+  it("undoes a server mutation after an identical browser echo", () => {
+    const controller = new CanvasController(createJsonCanvasPlugin());
+
+    controller.mutateScene((scene) => {
+      (scene.native as JsonCanvasDocument).nodes = [
+        { id: "a", type: "text", x: 0, y: 0, width: 360, height: 180, text: "A" },
+      ];
+    });
+
+    controller.replaceFromBrowser(
+      {
+        nodes: [{ id: "a", type: "text", x: 0, y: 0, width: 360, height: 180, text: "A" }],
+        edges: [],
+      },
+      { selectedIds: ["a"] },
+    );
+
+    expect(controller.currentVersion()).toBe(1);
+    expect(controller.undo()).toBe(true);
+    expect(controller.listObjects()).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,7 +6,7 @@ import { buildMcpServer } from "../../src/mcp/buildServer.js";
 import { createJsonCanvasPlugin } from "../../src/plugins/jsoncanvas/index.js";
 import { CanvasController } from "../../src/server/canvasController.js";
 import { Workspace } from "../../src/server/workspace.js";
-import { connectInMemory, jsonContent } from "../helpers.js";
+import { connectInMemory, jsonContent, textContent } from "../helpers.js";
 
 describe("JSON Canvas baseline MCP tools", () => {
   let root: string;
@@ -84,4 +84,49 @@ describe("JSON Canvas baseline MCP tools", () => {
       await close();
     }
   });
+
+  it("surfaces strict open_canvas duplicate id validation errors", async () => {
+    const { client, close } = await connectJsonCanvas(workspace);
+
+    try {
+      await writeFile(
+        path.join(root, "malformed.canvas"),
+        `${JSON.stringify({
+          nodes: [{ id: "a", type: "text", x: 0, y: 0, width: 360, height: 180, text: "A" }],
+          edges: [
+            { id: "e", fromNode: "a", toNode: "a" },
+            { id: "e", fromNode: "a", toNode: "missing" },
+          ],
+        })}\n`,
+      );
+
+      const result = await client.callTool({
+        name: "open_canvas",
+        arguments: { path: "malformed.canvas", repair: false },
+      });
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(result)).toMatch(/Duplicate edge id: e/);
+      expect(textContent(result)).toMatch(/Edge e references missing node/);
+    } finally {
+      await close();
+    }
+  });
 });
+
+async function connectJsonCanvas(workspace: Workspace) {
+  const plugin = createJsonCanvasPlugin();
+  const controller = new CanvasController(plugin);
+  const server = buildMcpServer({
+    plugin,
+    controller,
+    workspace,
+    clientsConnected: () => 0,
+    requestExport: async () => {
+      throw new Error("not used");
+    },
+    requestSelection: async () => ({ selectedIds: [] }),
+    requestSetSelection: async (selectedIds) => ({ selectedIds }),
+  });
+  const { client, close } = await connectInMemory(server);
+  return { client, close, controller };
+}

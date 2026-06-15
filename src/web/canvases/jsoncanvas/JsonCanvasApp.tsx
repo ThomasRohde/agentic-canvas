@@ -8,6 +8,7 @@ import {
   MiniMap,
   type Node,
   type NodeChange,
+  type NodeProps,
   type OnSelectionChangeParams,
   ReactFlow,
   ReactFlowProvider,
@@ -223,7 +224,7 @@ function JsonCanvasSurface({ mcpUrl }: JsonCanvasAppProps) {
     clientRef.current?.sendSelectionSetResult(message.id, message.selectedIds);
   };
 
-  const nodeTypes = useMemo(() => ({}), []);
+  const nodeTypes = useMemo(() => ({ jsonCanvasCard: JsonCanvasNodeCard }), []);
 
   return (
     <main className="canvas-shell">
@@ -264,7 +265,7 @@ function toFlowNodes(nodes: JsonCanvasNode[]): JsonFlowNode[] {
 function toFlowNode(node: JsonCanvasNode, selected?: boolean): JsonFlowNode {
   return {
     id: node.id,
-    type: "default",
+    type: "jsonCanvasCard",
     position: { x: node.x, y: node.y },
     width: node.width,
     height: node.height,
@@ -277,16 +278,17 @@ function toFlowNode(node: JsonCanvasNode, selected?: boolean): JsonFlowNode {
     style: {
       width: node.width,
       height: node.height,
-      borderRadius: node.type === "group" ? 6 : 4,
-      border: node.type === "group" ? "1px dashed #64748b" : "1px solid #334155",
       background: node.type === "group" ? "rgba(226,232,240,0.55)" : colorForNode(node),
-      color: "#0f172a",
-      padding: 10,
-      fontSize: 13,
-      whiteSpace: "pre-wrap",
-      overflow: "hidden",
     },
   };
+}
+
+export function JsonCanvasNodeCard({ data }: NodeProps<JsonFlowNode>) {
+  return (
+    <div className={`jsoncanvas-card jsoncanvas-card-${data.kind}`}>
+      <div className="jsoncanvas-card-label">{data.label}</div>
+    </div>
+  );
 }
 
 function toFlowEdges(edges: JsonCanvasEdge[]): JsonFlowEdge[] {

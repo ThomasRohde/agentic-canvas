@@ -148,11 +148,16 @@ function normalizeBrowserScene(
   const result = validateJsonCanvasDocument(incomingNative);
   return {
     native: result.document,
-    appState:
-      typeof appState === "object" && appState !== null
-        ? (appState as Record<string, unknown>)
-        : {},
+    appState: browserAppState(appState),
   };
+}
+
+function browserAppState(appState: unknown): Record<string, unknown> {
+  const entries =
+    typeof appState === "object" && appState !== null
+      ? Object.entries(appState as Record<string, unknown>)
+      : [];
+  return Object.fromEntries(entries.filter(([key]) => key !== "selectedIds"));
 }
 
 function serialize(scene: Scene): string {

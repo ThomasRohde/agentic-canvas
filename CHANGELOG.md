@@ -6,6 +6,14 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.5.1 - 2026-06-15
+
+- Fixed JSON Canvas auto-layout spacing so explicit small `layerSpacing` values do not overlap cards.
+- Hardened JSON Canvas strict open validation for duplicate edge ids and global node/edge id collisions.
+- Prevented browser scene echoes from creating duplicate undo history entries.
+- Added advisory warnings for JSON Canvas self-loop and parallel edges while keeping them format-compatible.
+- Preserved multiline JSON Canvas card text in the browser renderer and documented JSON Canvas defaults, version semantics, and selection lifetime.
+
 ## 0.5.0 - 2026-06-15
 
 - Added the `jsoncanvas` backend with plugin-neutral core scene handling, JSON Canvas `.canvas` validation/repair, semantic card/edge MCP tools, and a React Flow browser renderer.

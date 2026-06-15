@@ -104,7 +104,14 @@ For `--canvas jsoncanvas`, agents can use `add_text_card`, `add_file_card`,
 4. Call `auto_layout_cards`.
 5. Call `save_canvas` with `{ "path": "architecture-review" }`; the file is written as `architecture-review.canvas`.
 
-The JSON Canvas plugin writes standards-compatible `.canvas` files without Agentic Canvas metadata. It does not fetch link previews, index Obsidian vaults, or render arbitrary embedded media in this version.
+The JSON Canvas plugin writes standards-compatible `.canvas` files without Agentic
+Canvas metadata. Default card sizes are intentional: text cards are `360x180`,
+file/link cards are `360x120`, and groups are `520x360`. `connect_cards` defaults
+`toEnd` to `"arrow"`; pass `toEnd:"none"` for a plain line. `auto_layout_cards`
+treats `layerSpacing` and `nodeSpacing` as gaps added to measured card sizes, so
+small explicit spacing values should not overlap cards. It does not fetch link
+previews, index Obsidian vaults, or render arbitrary embedded media in this
+version.
 
 ## Agent Plugins
 
@@ -243,6 +250,10 @@ scripts/                 Release and package smoke scripts
 - HTTP MCP transport only; no stdio transport in v1.
 - Single browser session is the expected mode.
 - Full-scene sync is used instead of diffs or CRDT collaboration.
-- Screenshot and selection tools require a connected browser.
+- Screenshot and selection tools require a connected browser. Selection is
+  ephemeral browser UI state, may be cleared by mutations or undo/redo, and is not
+  persisted in `.canvas` files.
+- MCP `version` fields are monotonic scene revision counters, not package versions,
+  scene hashes, or optimistic-concurrency tokens.
 - The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, object search, atomic patches, layout cleanup, save/open, and screenshot.
 - The JSON Canvas tool surface is semantic-card focused: text/file/link cards, groups, edges, search, layout, atomic patches, save/open, and screenshot.

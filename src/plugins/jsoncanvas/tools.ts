@@ -50,7 +50,7 @@ const connectCardsShape = {
   fromSide: jsonCanvasSideSchema.optional(),
   toSide: jsonCanvasSideSchema.optional(),
   fromEnd: jsonCanvasEndSchema.optional(),
-  toEnd: jsonCanvasEndSchema.optional(),
+  toEnd: jsonCanvasEndSchema.default("arrow"),
   label: z.string().optional(),
   color: jsonCanvasColorSchema.optional(),
 };
@@ -243,7 +243,7 @@ function createNodeTool(
 
 function connectCards(context: PluginToolContext, input: Record<string, unknown>) {
   try {
-    const edge = context.controller.mutateScene((scene) => {
+    const result = context.controller.mutateScene((scene) => {
       const document = documentFromScene(scene);
       const created: JsonCanvasEdge = {
         id: createJsonCanvasId("edge"),
@@ -258,12 +258,12 @@ function connectCards(context: PluginToolContext, input: Record<string, unknown>
       assignDefined(created, "color", input.color);
       assertNodeExists(document, created.fromNode);
       assertNodeExists(document, created.toNode);
-      assertNoDuplicateEdge(document, created);
+      const warnings = edgeWarnings(document, created);
       document.edges = [...(document.edges ?? []), created];
       validateJsonCanvasDocument(document);
-      return created;
+      return { ...created, warnings };
     });
-    return textResult(edge);
+    return textResult(result);
   } catch (error) {
     return errorResult(error);
   }
@@ -289,7 +289,7 @@ function updateCard(context: PluginToolContext, input: Record<string, unknown>) 
 
 function updateEdge(context: PluginToolContext, input: Record<string, unknown>) {
   try {
-    const edge = context.controller.mutateScene((scene) => {
+    const result = context.controller.mutateScene((scene) => {
       const document = documentFromScene(scene);
       const existing = findEdge(document, String(input.id));
       if (!existing) {
@@ -297,9 +297,9 @@ function updateEdge(context: PluginToolContext, input: Record<string, unknown>) 
       }
       applyEdgePatch(document, existing, input);
       validateJsonCanvasDocument(document);
-      return existing;
+      return { ...existing, warnings: edgeWarnings(document, existing, existing.id) };
     });
-    return textResult(edge);
+    return textResult(result);
   } catch (error) {
     return errorResult(error);
   }
@@ -365,7 +365,7 @@ function autoLayoutCards(context: PluginToolContext, input: Record<string, unkno
       const document = documentFromScene(scene);
       const moved = layoutDocument(document, {
         direction: input.direction === "down" ? "down" : "right",
-        layerSpacing: Number(input.layerSpacing ?? 420),
+        layerSpacing: Number(input.layerSpacing ?? 60),
         nodeSpacing: Number(input.nodeSpacing ?? 120),
         includeGroups: Boolean(input.includeGroups),
       });
@@ -386,6 +386,7 @@ function applyJsonCanvasPatch(context: PluginToolContext, input: Record<string, 
         const created: string[] = [];
         const updated: string[] = [];
         const deleted: string[] = [];
+        const warnings: string[] = [];
 
         for (const node of (input.createNodes as JsonCanvasNode[] | undefined) ?? []) {
           assertUniqueNodeId(document, node.id);
@@ -409,7 +410,7 @@ function applyJsonCanvasPatch(context: PluginToolContext, input: Record<string, 
           assertUniqueEdgeId(document, edge.id);
           assertNodeExists(document, edge.fromNode);
           assertNodeExists(document, edge.toNode);
-          assertNoDuplicateEdge(document, edge);
+          warnings.push(...edgeWarnings(document, edge));
           document.edges = [...(document.edges ?? []), structuredClone(edge)];
           created.push(edge.id);
         }
@@ -421,6 +422,7 @@ function applyJsonCanvasPatch(context: PluginToolContext, input: Record<string, 
             throw new Error(`Edge not found: ${item.id}`);
           }
           applyEdgePatch(document, edge, item.patch);
+          warnings.push(...edgeWarnings(document, edge, edge.id));
           updated.push(edge.id);
         }
         for (const id of (input.deleteEdgeIds as string[] | undefined) ?? []) {
@@ -437,7 +439,7 @@ function applyJsonCanvasPatch(context: PluginToolContext, input: Record<string, 
           created,
           updated,
           deleted,
-          warnings: validation.warnings,
+          warnings: [...warnings, ...validation.warnings],
           version: context.controller.currentVersion() + 1,
         };
       }),
@@ -548,12 +550,6 @@ function applyEdgePatch(
   assignNullable(edge, "toEnd", patch.toEnd);
   assignNullable(edge, "label", patch.label);
   assignNullable(edge, "color", patch.color);
-  const duplicates = (document.edges ?? []).filter(
-    (candidate) => candidate.id !== edge.id && sameEdge(candidate, edge),
-  );
-  if (duplicates.length > 0) {
-    throw new Error("Duplicate edge");
-  }
 }
 
 function assertApplicableNodeFields(node: JsonCanvasNode, patch: Record<string, unknown>): void {
@@ -599,11 +595,11 @@ function layoutDocument(
     for (const [index, node] of sorted.entries()) {
       const oldBounds = { x: node.x, y: node.y, width: node.width, height: node.height };
       if (options.direction === "right") {
-        node.x = layerIndex * options.layerSpacing;
-        node.y = index * (node.height + options.nodeSpacing);
+        node.x = layerStart(layers, layerIndex, "x", options.layerSpacing);
+        node.y = stackStart(sorted, index, "y", options.nodeSpacing);
       } else {
-        node.x = index * (node.width + options.nodeSpacing);
-        node.y = layerIndex * options.layerSpacing;
+        node.x = stackStart(sorted, index, "x", options.nodeSpacing);
+        node.y = layerStart(layers, layerIndex, "y", options.layerSpacing);
       }
       const newBounds = { x: node.x, y: node.y, width: node.width, height: node.height };
       if (oldBounds.x !== newBounds.x || oldBounds.y !== newBounds.y) {
@@ -613,6 +609,38 @@ function layoutDocument(
   }
 
   return { movedIds: moved.map((item) => item.id), moved };
+}
+
+function layerStart(
+  layers: JsonCanvasNode[][],
+  layerIndex: number,
+  axis: "x" | "y",
+  spacing: number,
+): number {
+  let offset = 0;
+  for (let index = 0; index < layerIndex; index += 1) {
+    const layer = layers[index] ?? [];
+    const maxExtent = Math.max(
+      0,
+      ...layer.map((node) => (axis === "x" ? node.width : node.height)),
+    );
+    offset += maxExtent + spacing;
+  }
+  return offset;
+}
+
+function stackStart(
+  nodes: JsonCanvasNode[],
+  nodeIndex: number,
+  axis: "x" | "y",
+  spacing: number,
+): number {
+  let offset = 0;
+  for (let index = 0; index < nodeIndex; index += 1) {
+    const node = nodes[index];
+    offset += (axis === "x" ? node.width : node.height) + spacing;
+  }
+  return offset;
 }
 
 function layeredNodes(document: JsonCanvasDocument, nodes: JsonCanvasNode[]): JsonCanvasNode[][] {
@@ -706,34 +734,37 @@ function assertNodeExists(document: JsonCanvasDocument, id: string): void {
 }
 
 function assertUniqueNodeId(document: JsonCanvasDocument, id: string): void {
-  if (findNode(document, id)) {
+  if (findNode(document, id) || findEdge(document, id)) {
     throw new Error(`Duplicate node id: ${id}`);
   }
 }
 
 function assertUniqueEdgeId(document: JsonCanvasDocument, id: string): void {
-  if (findEdge(document, id)) {
+  if (findEdge(document, id) || findNode(document, id)) {
     throw new Error(`Duplicate edge id: ${id}`);
   }
 }
 
-function assertNoDuplicateEdge(document: JsonCanvasDocument, edge: JsonCanvasEdge): void {
-  if ((document.edges ?? []).some((candidate) => sameEdge(candidate, edge))) {
-    throw new Error("Duplicate edge");
+function edgeWarnings(
+  document: JsonCanvasDocument,
+  edge: JsonCanvasEdge,
+  existingId?: string,
+): string[] {
+  const warnings: string[] = [];
+  if (edge.fromNode === edge.toNode) {
+    warnings.push(`Edge ${edge.id} is a self-loop`);
   }
-}
-
-function sameEdge(left: JsonCanvasEdge, right: JsonCanvasEdge): boolean {
-  return (
-    left.fromNode === right.fromNode &&
-    left.toNode === right.toNode &&
-    left.fromSide === right.fromSide &&
-    left.toSide === right.toSide &&
-    left.fromEnd === right.fromEnd &&
-    left.toEnd === right.toEnd &&
-    left.label === right.label &&
-    left.color === right.color
-  );
+  if (
+    (document.edges ?? []).some(
+      (candidate) =>
+        candidate.id !== existingId &&
+        candidate.fromNode === edge.fromNode &&
+        candidate.toNode === edge.toNode,
+    )
+  ) {
+    warnings.push(`Edge ${edge.id} is parallel to an existing edge`);
+  }
+  return warnings;
 }
 
 function searchableNodeText(node: JsonCanvasNode): string {

@@ -123,19 +123,31 @@ export class CanvasController {
   }
 
   replaceFromBrowser(native: unknown, appState?: unknown, origin?: SceneChangeOrigin): void {
-    this.pushUndo(cloneScene(this.scene));
-    this.redoStack.length = 0;
+    const before = cloneScene(this.scene);
     const normalized = this.plugin.normalizeBrowserScene?.(native, appState, this.scene);
+    const nextNative = normalized ? normalized.native : native;
+    const nextAppState = normalized
+      ? normalized.appState
+      : appState !== undefined && typeof appState === "object" && appState !== null
+        ? (appState as Record<string, unknown>)
+        : this.scene.appState;
+
+    if (
+      samePayload(this.scene.native, nextNative) &&
+      samePayload(this.scene.appState, nextAppState)
+    ) {
+      return;
+    }
+
+    this.pushUndo(before);
+    this.redoStack.length = 0;
     if (normalized) {
-      this.scene.native = normalized.native;
-      this.scene.appState = normalized.appState;
+      this.scene.native = nextNative;
+      this.scene.appState = nextAppState;
     } else {
-      this.scene.native = native;
+      this.scene.native = nextNative;
       if (appState !== undefined) {
-        this.scene.appState =
-          typeof appState === "object" && appState !== null
-            ? (appState as Record<string, unknown>)
-            : {};
+        this.scene.appState = nextAppState;
       }
     }
     this.bumpAndNotify(origin);
@@ -245,4 +257,8 @@ export class CanvasController {
     this.scene.version = currentVersion;
     this.commit();
   }
+}
+
+function samePayload(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

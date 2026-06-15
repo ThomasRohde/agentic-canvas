@@ -88,6 +88,37 @@ describe("JSON Canvas WebSocket roundtrip", () => {
     expect(message.canvas).toBe("jsoncanvas");
     socket.close();
   });
+
+  it("rejects stale browser JSON Canvas scenes and resyncs the client", async () => {
+    const socket = await openSocket(url);
+    const hello = readUntil(socket, "scene:set");
+    socket.send(JSON.stringify({ type: "hello" }));
+    await hello;
+
+    const serverBroadcast = readUntil(socket, "scene:set");
+    controller.mutateScene((scene) => {
+      scene.native = {
+        nodes: [{ id: "a", type: "text", x: 0, y: 0, width: 360, height: 180, text: "A" }],
+        edges: [],
+      };
+    });
+    await serverBroadcast;
+
+    const resync = readUntil(socket, "scene:set");
+    socket.send(
+      JSON.stringify({
+        type: "scene:changed",
+        canvas: "jsoncanvas",
+        baseVersion: 0,
+        scene: { nodes: [], edges: [] },
+      }),
+    );
+
+    const message = await resync;
+    expect(controller.listObjects().map((object) => object.id)).toEqual(["a"]);
+    expect(message.version).toBe(controller.currentVersion());
+    socket.close();
+  });
 });
 
 function openSocket(url: string): Promise<WebSocket> {
