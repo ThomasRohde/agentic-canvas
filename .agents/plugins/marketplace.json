@@ -1,0 +1,20 @@
+{
+  "name": "agentic-canvas",
+  "interface": {
+    "displayName": "Agentic Canvas"
+  },
+  "plugins": [
+    {
+      "name": "agentic-canvas",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agentic-canvas"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

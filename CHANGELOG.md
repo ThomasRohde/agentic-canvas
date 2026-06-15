@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.1 - 2026-06-15
+
+- Added a repo-bundled Codex plugin and local marketplace entry for Agentic Canvas.
+- Documented Codex plugin installation and the local MCP server startup workflow.
+
 ## 0.4.0 - 2026-06-15
 
 - Hardened MCP file tools so canvas files default to `.excalidraw`, screenshots default to `.png`, and mismatched extensions return clear tool errors.

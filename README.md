@@ -88,6 +88,26 @@ Example tool flow:
 
 `save_canvas` and `open_canvas` append `.excalidraw` when no extension is provided and reject other extensions. `screenshot` appends `.png` for file writes and rejects other extensions.
 
+## Codex Plugin
+
+This repository bundles a local Codex plugin under `plugins/agentic-canvas`, with
+a repo-local marketplace at `.agents/plugins/marketplace.json`.
+
+From a checkout of this repository:
+
+```bash
+codex plugin marketplace add .
+codex plugin add agentic-canvas@agentic-canvas
+```
+
+Start a new Codex thread after installing so the plugin skill and MCP tools are
+loaded. The plugin connects to `http://127.0.0.1:3333/mcp`, so start Agentic Canvas
+before using it:
+
+```bash
+npx @trohde/agentic-canvas@latest --canvas excalidraw --workspace <project-dir>
+```
+
 ## Test And Build
 
 ```bash
