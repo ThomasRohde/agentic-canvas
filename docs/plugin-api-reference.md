@@ -354,10 +354,18 @@ not implement generic shape-object creation or updates, so MCP clients should us
 `update_flow_edge`, `find_flow_nodes`, `find_flow_edges`, traversal tools,
 `validate_flow`, `auto_layout_flow`, `export_mermaid`, and `apply_flow_patch`.
 Flow validation enforces unique ids, valid node/port references, compatible port
-directions, and acyclic graphs when strict validation is requested. Browser state
-such as selection and React Flow measurements is not persisted beyond the semantic
-`.flow` document. Flow is not a BPMN, ArchiMate, UML, or C4 standards
-implementation in v1.
+directions, and acyclic graphs when strict validation is requested.
+`validate_flow` with `{ "mode": "strict", "domainRules": true }` also reports
+self-loops, required-but-unconnected ports, orphaned decision nodes, and stale
+`contains` edges that disagree with structural `parentId` containment. Flow tools
+treat `parentId` as the structural containment source of truth and reconcile
+`contains` edges after relevant node/edge mutations. Self-loops remain allowed in
+basic mode and are visible through `find_cycles`, `find_paths`, and validation
+stats. `export_mermaid` emits boundary containment as Mermaid `subgraph` blocks and
+escapes labels so quotes, pipes, and HTML-sensitive characters do not break
+Mermaid syntax. Browser state such as selection and React Flow measurements is not
+persisted beyond the semantic `.flow` document. Flow is not a BPMN, ArchiMate, UML,
+or C4 standards implementation in v1.
 
 Plugin tools must not redefine baseline tool names. Use plugin-specific names for
 engine-native operations and higher-level workflows.

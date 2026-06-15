@@ -1,6 +1,6 @@
 {
   "name": "@trohde/agentic-canvas",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Local-first visual canvas controlled by MCP tools.",
   "type": "module",
   "bin": {

@@ -66,6 +66,7 @@ export interface CanvasObjectSummary {
   height?: number;
   text?: string;
   label?: string;
+  displayLabel?: string;
 }
 
 export interface CanvasObjectDetail extends CanvasObjectSummary {

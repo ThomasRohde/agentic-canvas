@@ -159,6 +159,18 @@ body {
   background: #f8fafc;
 }
 
+.flow-self-loop-label {
+  position: absolute;
+  padding: 2px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.25;
+  pointer-events: none;
+}
+
 .flow-inspector {
   position: absolute;
   top: 12px;

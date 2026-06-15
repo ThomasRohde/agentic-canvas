@@ -46,23 +46,44 @@ export function layoutFlowDocument(
   const moved: FlowLayoutResult["moved"] = [];
   const layoutNodes = document.nodes.filter((node) => node.type !== "boundary");
   const orphanIds = new Set(orphanNodes(document).map((node) => node.id));
-  const layered = layerNodes(
-    document,
-    includeOrphans ? layoutNodes : layoutNodes.filter((node) => !orphanIds.has(node.id)),
-  );
-  const orphanLayer = includeOrphans ? [] : layoutNodes.filter((node) => orphanIds.has(node.id));
-  const layers = orphanLayer.length > 0 ? [...layered, orphanLayer] : layered;
+  const nodesToLayout = includeOrphans
+    ? layoutNodes
+    : layoutNodes.filter((node) => !orphanIds.has(node.id));
+  const components = layerNodeComponents(document, nodesToLayout);
+  let componentOffset = 0;
 
-  for (const [layerIndex, layer] of layers.entries()) {
-    const sorted = sortNodes(layer);
-    for (const [nodeIndex, node] of sorted.entries()) {
+  for (const component of components) {
+    for (const [layerIndex, layer] of component.layers.entries()) {
+      const sorted = sortNodes(layer);
+      for (const [nodeIndex, node] of sorted.entries()) {
+        const oldBounds = flowNodeBounds(node);
+        const position = positionFor(component.layers, layerIndex, sorted, nodeIndex, direction, {
+          layerSpacing,
+          nodeSpacing,
+        });
+        node.x = direction === "TB" ? position.x + componentOffset : position.x;
+        node.y = direction === "LR" ? position.y + componentOffset : position.y;
+        node.width = node.width ?? FLOW_NODE_DEFAULTS[node.type].width;
+        node.height = node.height ?? FLOW_NODE_DEFAULTS[node.type].height;
+        pushMove(moved, node.id, oldBounds, flowNodeBounds(node));
+      }
+    }
+    const bounds = componentBounds(component.nodes);
+    if (bounds) {
+      componentOffset += (direction === "TB" ? bounds.width : bounds.height) + nodeSpacing;
+    }
+  }
+
+  if (!includeOrphans) {
+    const orphanLayer = sortNodes(layoutNodes.filter((node) => orphanIds.has(node.id)));
+    for (const [nodeIndex, node] of orphanLayer.entries()) {
       const oldBounds = flowNodeBounds(node);
-      const position = positionFor(layers, layerIndex, sorted, nodeIndex, direction, {
+      const position = positionFor([orphanLayer], 0, orphanLayer, nodeIndex, direction, {
         layerSpacing,
         nodeSpacing,
       });
-      node.x = position.x;
-      node.y = position.y;
+      node.x = direction === "TB" ? componentOffset + position.x : position.x;
+      node.y = direction === "LR" ? componentOffset + position.y : position.y;
       node.width = node.width ?? FLOW_NODE_DEFAULTS[node.type].width;
       node.height = node.height ?? FLOW_NODE_DEFAULTS[node.type].height;
       pushMove(moved, node.id, oldBounds, flowNodeBounds(node));
@@ -73,12 +94,72 @@ export function layoutFlowDocument(
   return { movedIds: moved.map((item) => item.id), moved };
 }
 
+interface LayeredComponent {
+  nodes: FlowNode[];
+  layers: FlowNode[][];
+}
+
+function layerNodeComponents(document: FlowDocument, nodes: FlowNode[]): LayeredComponent[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const adjacency = new Map<string, Set<string>>();
+  for (const edge of document.edges) {
+    if (
+      edge.type === "contains" ||
+      edge.source === edge.target ||
+      !nodesById.has(edge.source) ||
+      !nodesById.has(edge.target)
+    ) {
+      continue;
+    }
+    addAdjacent(adjacency, edge.source, edge.target);
+    addAdjacent(adjacency, edge.target, edge.source);
+  }
+
+  const seen = new Set<string>();
+  const components: FlowNode[][] = [];
+  for (const node of sortNodes(nodes)) {
+    if (seen.has(node.id)) {
+      continue;
+    }
+    const component: FlowNode[] = [];
+    const queue = [node.id];
+    seen.add(node.id);
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      const current = currentId ? nodesById.get(currentId) : undefined;
+      if (!current || !currentId) {
+        continue;
+      }
+      component.push(current);
+      for (const nextId of [...(adjacency.get(currentId) ?? [])].sort()) {
+        if (!seen.has(nextId)) {
+          seen.add(nextId);
+          queue.push(nextId);
+        }
+      }
+    }
+    components.push(sortNodes(component));
+  }
+
+  return components
+    .sort((left, right) => componentKey(left).localeCompare(componentKey(right)))
+    .map((component) => ({
+      nodes: component,
+      layers: layerNodes(document, component),
+    }));
+}
+
 function layerNodes(document: FlowDocument, nodes: FlowNode[]): FlowNode[][] {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const incoming = new Map<string, string[]>();
   const outgoing = new Map<string, string[]>();
   for (const edge of document.edges) {
-    if (edge.type === "contains" || !nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
+    if (
+      edge.type === "contains" ||
+      edge.source === edge.target ||
+      !nodeIds.has(edge.source) ||
+      !nodeIds.has(edge.target)
+    ) {
       continue;
     }
     incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source]);
@@ -93,7 +174,7 @@ function layerNodes(document: FlowDocument, nodes: FlowNode[]): FlowNode[][] {
   }
   for (const node of sortNodes(nodes)) {
     if (!layerById.has(node.id)) {
-      layerById.set(node.id, 0);
+      assignLayer(node.id, 0, outgoing, layerById, new Set());
     }
   }
 
@@ -103,6 +184,14 @@ function layerNodes(document: FlowDocument, nodes: FlowNode[]): FlowNode[][] {
     layers[layer] = [...(layers[layer] ?? []), node];
   }
   return layers.filter(Boolean);
+}
+
+function addAdjacent(adjacency: Map<string, Set<string>>, from: string, to: string): void {
+  adjacency.set(from, new Set([...(adjacency.get(from) ?? []), to]));
+}
+
+function componentKey(nodes: FlowNode[]): string {
+  return sortNodes(nodes)[0]?.id ?? "";
 }
 
 function assignLayer(
@@ -176,6 +265,20 @@ function stackStart(
     offset += (axis === "x" ? bounds.width : bounds.height) + spacing;
   }
   return offset;
+}
+
+function componentBounds(
+  nodes: FlowNode[],
+): { x: number; y: number; width: number; height: number } | undefined {
+  if (nodes.length === 0) {
+    return undefined;
+  }
+  const bounds = nodes.map(flowNodeBounds);
+  const left = Math.min(...bounds.map((bound) => bound.x));
+  const top = Math.min(...bounds.map((bound) => bound.y));
+  const right = Math.max(...bounds.map((bound) => bound.x + bound.width));
+  const bottom = Math.max(...bounds.map((bound) => bound.y + bound.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 function resizeBoundaries(

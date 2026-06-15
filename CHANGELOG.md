@@ -6,6 +6,17 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.6.1 - 2026-06-15
+
+- Fixed Flow Mermaid export escaping and boundary export so labels with Mermaid
+  metacharacters stay parseable and `contains`/`parentId` grouping becomes
+  `subgraph` output.
+- Fixed Flow auto-layout for cyclic and self-loop components so independent
+  components keep the requested left-to-right or top-to-bottom orientation.
+- Hardened Flow validation, graph traversal, containment reconciliation, and MCP
+  response consistency for self-loops, required ports, decision orphans,
+  `contains` edge drift, missing ports, unlabeled edges, and missing object ids.
+
 ## 0.6.0 - 2026-06-15
 
 - Added the `flow` backend with Agentic Canvas-native `.flow` documents, typed nodes, ports, edges, validation/repair, deterministic layout, graph traversal, and Mermaid export.

@@ -126,15 +126,22 @@ typical Flow graph flow:
    data stores, queues, steps, risks, controls, and boundaries.
 2. Call `add_port` where interface, data, or queue semantics matter.
 3. Call `connect_flow_nodes` with edge types such as `calls`, `publishes`,
-   `consumes`, `reads`, `writes`, `mitigates`, or `depends_on`.
-4. Call `validate_flow`, then `auto_layout_flow`.
-5. Call `export_mermaid` when a text diagram is needed.
+   `subscribes`, `reads`, `writes`, `mitigates`, or `depends_on`.
+4. Call `validate_flow`, then `auto_layout_flow`. Use
+   `{ "mode": "strict", "domainRules": true }` when required ports, decision
+   connectivity, self-loops, and containment consistency should be enforced.
+5. Call `export_mermaid` when a text diagram is needed; boundaries export as
+   Mermaid `subgraph` blocks and labels are escaped for Mermaid syntax.
 6. Call `save_canvas` with `{ "path": "system-flow" }`; the file is written as `system-flow.flow`.
 
 Flow writes Agentic Canvas-native `.flow` JSON with `type:"agentic-flow"` and
 `version:1`. It is designed for architecture, workflow, data-lineage, and
 risk/control maps, but it is not BPMN, ArchiMate, UML, or C4 compliant in this
-version.
+version. Structural containment uses `parentId`; `contains` edges are treated as
+an optional mirrored relationship and Flow tools reconcile them after mutations.
+Self-loops are allowed by default and are reported by `find_cycles`,
+`find_paths`, and validation stats; strict/domain validation reports them as
+errors.
 
 ## Agent Plugins
 
@@ -284,7 +291,7 @@ scripts/                 Release and package smoke scripts
 - Full-scene sync is used instead of diffs or CRDT collaboration.
 - Screenshot and selection tools require a connected browser. Selection is
   ephemeral browser UI state, may be cleared by mutations or undo/redo, and is not
-  persisted in `.canvas` files.
+  persisted in `.excalidraw`, `.canvas`, or `.flow` files.
 - MCP `version` fields are monotonic scene revision counters, not package versions,
   scene hashes, or optimistic-concurrency tokens.
 - The Excalidraw tool surface is intentionally small: shapes, text, frames, groups, arrows, flowcharts, object search, atomic patches, layout cleanup, save/open, and screenshot.

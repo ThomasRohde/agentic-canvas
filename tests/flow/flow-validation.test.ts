@@ -114,4 +114,50 @@ describe("Flow validation", () => {
     );
     expect(risk.warnings.map((warning) => warning.code)).toContain("risk.unlinked");
   });
+
+  it("applies strict and domain-rule validation beyond basic schema checks", () => {
+    const result = validateFlowDocument(
+      {
+        type: "agentic-flow",
+        version: 1,
+        nodes: [
+          {
+            id: "decision",
+            type: "decision",
+            label: "Decide",
+            x: 0,
+            y: 0,
+            ports: [{ id: "input", direction: "in", side: "left", required: true }],
+          },
+          { id: "service", type: "service", label: "Service", x: 320, y: 0 },
+        ],
+        edges: [{ id: "loop", type: "calls", source: "service", target: "service" }],
+      },
+      { mode: "strict", domainRules: true },
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual(
+      expect.arrayContaining(["edge.selfLoop", "port.required.unconnected", "decision.orphan"]),
+    );
+  });
+
+  it("flags contains edges that disagree with structural parent ids", () => {
+    const basic = validateFlowDocument({
+      type: "agentic-flow",
+      version: 1,
+      nodes: [
+        { id: "b1", type: "boundary", label: "Boundary 1", x: 0, y: 0 },
+        { id: "b2", type: "boundary", label: "Boundary 2", x: 0, y: 0 },
+        { id: "child", type: "service", label: "Child", x: 0, y: 0, parentId: "b2" },
+      ],
+      edges: [{ id: "contains", type: "contains", source: "b1", target: "child" }],
+    });
+    expect(basic.valid).toBe(true);
+    expect(basic.warnings.map((warning) => warning.code)).toContain("contains.parent.mismatch");
+
+    const strict = validateFlowDocument(basic.document, { mode: "strict" });
+    expect(strict.valid).toBe(false);
+    expect(strict.errors.map((error) => error.code)).toContain("contains.parent.mismatch");
+  });
 });

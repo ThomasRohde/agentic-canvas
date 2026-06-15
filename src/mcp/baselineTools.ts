@@ -99,7 +99,12 @@ export function registerBaselineTools(server: McpServer, context: BaselineToolCo
     },
     async ({ id }) => {
       const object = context.controller.getObject(id);
-      return object ? textResult(object) : errorResult(`Object not found: ${id}`);
+      return object
+        ? textResult(object)
+        : structuredErrorResult({
+            error: `Object not found: ${id}`,
+            missingIds: [id],
+          });
     },
   );
 
@@ -379,6 +384,13 @@ function errorResult(error: unknown) {
   return {
     isError: true,
     content: [{ type: "text" as const, text: message }],
+  };
+}
+
+function structuredErrorResult(error: Record<string, unknown>) {
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: JSON.stringify(error) }],
   };
 }
 

@@ -27,6 +27,7 @@ export interface FlowValidationIssue {
 export interface FlowValidationOptions {
   repair?: boolean;
   mode?: "basic" | "strict";
+  domainRules?: boolean;
 }
 
 export interface FlowValidationResult {
@@ -45,6 +46,7 @@ export class FlowValidationError extends Error {
 interface ValidationContext {
   repair: boolean;
   mode: "basic" | "strict";
+  domainRules: boolean;
   errors: FlowValidationIssue[];
   warnings: FlowValidationIssue[];
 }
@@ -61,6 +63,7 @@ export function validateFlowDocument(
   const context: ValidationContext = {
     repair: Boolean(options.repair),
     mode: options.mode ?? "basic",
+    domainRules: Boolean(options.domainRules),
     errors: [],
     warnings: [],
   };
@@ -637,6 +640,8 @@ function validateGraphRules(document: FlowDocument, context: ValidationContext):
     }
   }
 
+  validateContainment(document, context);
+
   for (const node of document.nodes) {
     if ((incoming.get(node.id) ?? []).length === 0 && (outgoing.get(node.id) ?? []).length === 0) {
       addWarning(context, "node.orphan", `Node ${node.id} is orphaned`, {
@@ -685,14 +690,21 @@ function validateGraphRules(document: FlowDocument, context: ValidationContext):
   }
 
   const strict = context.mode === "strict" || document.settings?.strictValidation === true;
-  if (!strict) {
+  const domainRules = context.domainRules;
+  if (!strict && !domainRules && document.settings?.acyclic !== true) {
     return;
   }
 
-  if (document.settings?.acyclic && findCycle(document)) {
-    addError(context, "graph.cyclic", "Graph is cyclic while settings.acyclic is true", {
+  if ((strict || document.settings?.acyclic) && findCycle(document)) {
+    addError(context, "graph.cyclic", "Graph is cyclic", {
       objectKind: "document",
     });
+  }
+  if (strict || domainRules) {
+    validateDomainRules(document, incoming, outgoing, context);
+  }
+  if (!strict) {
+    return;
   }
   const allowedNodeTypes = document.settings?.allowedNodeTypes
     ? new Set(document.settings.allowedNodeTypes)
@@ -784,6 +796,146 @@ function validateGraphRules(document: FlowDocument, context: ValidationContext):
       );
     }
   }
+}
+
+function validateDomainRules(
+  document: FlowDocument,
+  incoming: Map<string, FlowEdge[]>,
+  outgoing: Map<string, FlowEdge[]>,
+  context: ValidationContext,
+): void {
+  for (const edge of document.edges) {
+    if (edge.source === edge.target && edge.type !== "contains") {
+      addError(context, "edge.selfLoop", `Edge ${edge.id} is a self-loop`, {
+        objectId: edge.id,
+        objectKind: "edge",
+      });
+    }
+  }
+  for (const node of document.nodes) {
+    for (const port of node.ports ?? []) {
+      if (!port.required) {
+        continue;
+      }
+      const connectedIncoming = portConnectedIncoming(node.id, port.id, incoming);
+      const connectedOutgoing = portConnectedOutgoing(node.id, port.id, outgoing);
+      const connected =
+        port.direction === "in"
+          ? connectedIncoming
+          : port.direction === "out"
+            ? connectedOutgoing
+            : connectedIncoming || connectedOutgoing;
+      if (!connected) {
+        addError(
+          context,
+          "port.required.unconnected",
+          `Required port ${node.id}#${port.id} is not connected`,
+          {
+            objectId: `${node.id}#${port.id}`,
+            objectKind: "port",
+          },
+        );
+      }
+    }
+    if (
+      node.type === "decision" &&
+      (incoming.get(node.id) ?? []).length === 0 &&
+      (outgoing.get(node.id) ?? []).length === 0
+    ) {
+      addError(context, "decision.orphan", `Decision node ${node.id} is orphaned`, {
+        objectId: node.id,
+        objectKind: "node",
+      });
+    }
+  }
+}
+
+function validateContainment(document: FlowDocument, context: ValidationContext): void {
+  const nodesById = new Map(document.nodes.map((node) => [node.id, node]));
+  const strict =
+    context.mode === "strict" ||
+    context.domainRules ||
+    document.settings?.strictValidation === true;
+  for (const edge of document.edges.filter((candidate) => candidate.type === "contains")) {
+    const source = nodesById.get(edge.source);
+    const target = nodesById.get(edge.target);
+    if (!source || !target) {
+      continue;
+    }
+    if (source.type !== "boundary") {
+      containmentIssue(
+        context,
+        strict,
+        "contains.source.notBoundary",
+        `Contains edge ${edge.id} source is not a boundary: ${edge.source}`,
+        edge.id,
+      );
+      continue;
+    }
+    if (target.parentId !== edge.source) {
+      if (context.repair) {
+        addWarning(
+          context,
+          "contains.parent.repaired",
+          `Updated node ${target.id} parentId to match contains edge ${edge.id}`,
+          {
+            objectId: edge.id,
+            objectKind: "edge",
+          },
+        );
+        target.parentId = edge.source;
+        continue;
+      }
+      containmentIssue(
+        context,
+        strict,
+        "contains.parent.mismatch",
+        target.parentId
+          ? `Contains edge ${edge.id} conflicts with node ${target.id} parentId: ${target.parentId}`
+          : `Contains edge ${edge.id} is not mirrored by node ${target.id} parentId`,
+        edge.id,
+      );
+    }
+  }
+}
+
+function containmentIssue(
+  context: ValidationContext,
+  strict: boolean,
+  code: string,
+  message: string,
+  objectId: string,
+): void {
+  const issue = { objectId, objectKind: "edge" as const };
+  if (strict) {
+    addError(context, code, message, issue);
+  } else {
+    addWarning(context, code, message, issue);
+  }
+}
+
+function portConnectedIncoming(
+  nodeId: string,
+  portId: string,
+  incoming: Map<string, FlowEdge[]>,
+): boolean {
+  return (incoming.get(nodeId) ?? []).some(
+    (edge) =>
+      (edge.target === nodeId && edge.targetPort === portId) ||
+      (edge.direction === "bidirectional" && edge.source === nodeId && edge.sourcePort === portId),
+  );
+}
+
+function portConnectedOutgoing(
+  nodeId: string,
+  portId: string,
+  outgoing: Map<string, FlowEdge[]>,
+): boolean {
+  return (outgoing.get(nodeId) ?? []).some(
+    (edge) =>
+      (edge.source === nodeId && edge.sourcePort === portId) ||
+      (edge.direction === "bidirectional" && edge.target === nodeId && edge.targetPort === portId),
+  );
 }
 
 function emptyDocument(): FlowDocument {

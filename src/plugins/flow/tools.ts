@@ -282,7 +282,7 @@ function addPort(context: PluginToolContext, input: Record<string, unknown>) {
       const node = requireNode(document, String(input.nodeId));
       const port = buildPort(node, input);
       node.ports = [...(node.ports ?? []), port];
-      return { nodeId: node.id, port };
+      return { nodeId: node.id, port, object: getFlowObject(document, `${node.id}#${port.id}`) };
     });
     return textResult(result);
   } catch (error) {
@@ -296,7 +296,7 @@ function updatePort(context: PluginToolContext, input: Record<string, unknown>) 
       const node = requireNode(document, String(input.nodeId));
       const port = requirePort(node, String(input.portId));
       applyPortPatch(port, input);
-      return { nodeId: node.id, port };
+      return { nodeId: node.id, port, object: getFlowObject(document, `${node.id}#${port.id}`) };
     });
     return textResult(result);
   } catch (error) {
@@ -320,6 +320,7 @@ function connectFlowNodes(context: PluginToolContext, input: Record<string, unkn
     const object = mutateFlow(context, (document) => {
       const edge = buildEdge(document, input);
       assertUniqueId(document, edge.id);
+      reconcileContainmentForEdge(document, edge);
       assertNoDuplicateSemanticEdge(document, edge);
       document.edges.push(edge);
       return edge.id;
@@ -341,6 +342,7 @@ function updateFlowNode(context: PluginToolContext, input: Record<string, unknow
         }
       }
       applyNodePatch(node, input);
+      reconcileContainmentForNode(document, node);
       return node.id;
     });
     return textResult(object);
@@ -354,6 +356,8 @@ function updateFlowEdge(context: PluginToolContext, input: Record<string, unknow
     const object = mutateFlow(context, (document) => {
       const edge = requireEdge(document, String(input.id));
       applyEdgePatch(edge, input);
+      assertEdgeEndpoints(document, edge);
+      reconcileContainmentForEdge(document, edge);
       assertNoDuplicateSemanticEdge(document, edge, edge.id);
       return edge.id;
     });
@@ -474,8 +478,10 @@ function findCyclesTool(context: PluginToolContext, input: Record<string, unknow
 
 function validateFlowTool(context: PluginToolContext, input: Record<string, unknown>) {
   const document = documentFromScene(context.controller.getScene());
-  const mode = input.mode === "strict" || input.domainRules ? "strict" : "basic";
-  const result = validateFlowDocument(document, { mode });
+  const result = validateFlowDocument(document, {
+    mode: input.mode === "strict" ? "strict" : "basic",
+    domainRules: Boolean(input.domainRules),
+  });
   return textResult({
     valid: result.valid,
     errors: result.errors,
@@ -533,6 +539,7 @@ function applyFlowPatch(context: PluginToolContext, input: Record<string, unknow
           | undefined) ?? []) {
           const node = requireNode(document, item.id);
           applyNodePatch(node, item.patch);
+          reconcileContainmentForNode(document, node);
           updated.push(node.id);
         }
         for (const id of (input.deleteNodeIds as string[] | undefined) ?? []) {
@@ -568,16 +575,21 @@ function applyFlowPatch(context: PluginToolContext, input: Record<string, unknow
           deleted.push(...deletion.deleted);
         }
         for (const edge of (input.createEdges as FlowEdge[] | undefined) ?? []) {
-          assertUniqueId(document, edge.id);
-          assertNoDuplicateSemanticEdge(document, edge);
-          document.edges.push(structuredClone(edge));
-          created.push(edge.id);
+          const nextEdge = structuredClone(edge);
+          assertUniqueId(document, nextEdge.id);
+          assertEdgeEndpoints(document, nextEdge);
+          reconcileContainmentForEdge(document, nextEdge);
+          assertNoDuplicateSemanticEdge(document, nextEdge);
+          document.edges.push(nextEdge);
+          created.push(nextEdge.id);
         }
         for (const item of (input.updateEdges as
           | Array<{ id: string; patch: Record<string, unknown> }>
           | undefined) ?? []) {
           const edge = requireEdge(document, item.id);
           applyEdgePatch(edge, item.patch);
+          assertEdgeEndpoints(document, edge);
+          reconcileContainmentForEdge(document, edge);
           assertNoDuplicateSemanticEdge(document, edge, edge.id);
           updated.push(edge.id);
         }
@@ -675,8 +687,13 @@ function buildPort(node: FlowNode, input: Record<string, unknown>): FlowPort {
 }
 
 function buildEdge(document: FlowDocument, input: Record<string, unknown>): FlowEdge {
-  requireNode(document, String(input.source));
-  requireNode(document, String(input.target));
+  assertEdgeEndpointValues(
+    document,
+    String(input.source),
+    String(input.target),
+    input.sourcePort as string | undefined,
+    input.targetPort as string | undefined,
+  );
   return stripUndefined({
     id: createFlowId("edge"),
     type: (input.type as FlowEdge["type"] | undefined) ?? "generic",
@@ -814,9 +831,18 @@ function deleteNode(document: FlowDocument, id: string): string[] {
 }
 
 function deleteEdge(document: FlowDocument, id: string): boolean {
-  const before = document.edges.length;
-  document.edges = document.edges.filter((edge) => edge.id !== id);
-  return document.edges.length !== before;
+  const edge = document.edges.find((candidate) => candidate.id === id);
+  if (!edge) {
+    return false;
+  }
+  if (edge.type === "contains") {
+    const target = document.nodes.find((node) => node.id === edge.target);
+    if (target?.parentId === edge.source) {
+      target.parentId = undefined;
+    }
+  }
+  document.edges = document.edges.filter((candidate) => candidate.id !== id);
+  return true;
 }
 
 function requireNode(document: FlowDocument, id: string): FlowNode {
@@ -841,6 +867,74 @@ function requirePort(node: FlowNode, id: string): FlowPort {
     throw new Error(`Flow port not found: ${node.id}#${id}`);
   }
   return port;
+}
+
+function assertEdgeEndpoints(document: FlowDocument, edge: FlowEdge): void {
+  assertEdgeEndpointValues(document, edge.source, edge.target, edge.sourcePort, edge.targetPort);
+}
+
+function assertEdgeEndpointValues(
+  document: FlowDocument,
+  sourceId: string,
+  targetId: string,
+  sourcePortId?: string,
+  targetPortId?: string,
+): void {
+  const source = requireNode(document, sourceId);
+  const target = requireNode(document, targetId);
+  if (sourcePortId) {
+    const sourcePort = findPort(source, sourcePortId);
+    if (!sourcePort) {
+      throw new Error(`Source port ${source.id}#${sourcePortId} does not exist`);
+    }
+    if (sourcePort.direction === "in") {
+      throw new Error(`Source port ${source.id}#${sourcePortId} cannot be in-only`);
+    }
+  }
+  if (targetPortId) {
+    const targetPort = findPort(target, targetPortId);
+    if (!targetPort) {
+      throw new Error(`Target port ${target.id}#${targetPortId} does not exist`);
+    }
+    if (targetPort.direction === "out") {
+      throw new Error(`Target port ${target.id}#${targetPortId} cannot be out-only`);
+    }
+  }
+}
+
+function reconcileContainmentForNode(document: FlowDocument, node: FlowNode): void {
+  if (!node.parentId) {
+    document.edges = document.edges.filter(
+      (edge) => edge.type !== "contains" || edge.target !== node.id,
+    );
+    return;
+  }
+  document.edges = document.edges.filter(
+    (edge) => edge.type !== "contains" || edge.target !== node.id || edge.source === node.parentId,
+  );
+}
+
+function reconcileContainmentForEdge(document: FlowDocument, edge: FlowEdge): void {
+  if (edge.type !== "contains") {
+    return;
+  }
+  const source = requireNode(document, edge.source);
+  const target = requireNode(document, edge.target);
+  if (source.type !== "boundary") {
+    throw new Error(`Contains edge source must be a boundary: ${edge.source}`);
+  }
+  target.parentId = source.id;
+  document.edges = document.edges.filter(
+    (candidate) =>
+      candidate.id === edge.id ||
+      candidate.type !== "contains" ||
+      candidate.target !== target.id ||
+      candidate.source === source.id,
+  );
+}
+
+function findPort(node: FlowNode, id: string): FlowPort | undefined {
+  return (node.ports ?? []).find((candidate) => candidate.id === id);
 }
 
 function assertUniqueId(document: FlowDocument, id: string): void {

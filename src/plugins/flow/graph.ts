@@ -85,6 +85,18 @@ export function findPaths(
   };
 
   if (index.nodesById.has(from) && index.nodesById.has(to)) {
+    if (from === to) {
+      paths.push({ nodeIds: [from], edgeIds: [] });
+      if (maxDepth > 0) {
+        for (const edge of filteredEdges(index.outgoing.get(from) ?? [], allowedEdgeTypes)) {
+          const nextNodeId = oppositeNode(edge, from, "outgoing");
+          if (nextNodeId === from && paths.length < limit) {
+            paths.push({ nodeIds: [from, from], edgeIds: [edge.id] });
+          }
+        }
+      }
+      return paths;
+    }
     visit(from, [from], []);
   }
   return paths;
@@ -108,7 +120,7 @@ export function findCycles(
     }
     for (const edge of filteredEdges(index.outgoing.get(nodeId) ?? [], allowedEdgeTypes)) {
       const nextNodeId = oppositeNode(edge, nodeId, "outgoing");
-      if (nextNodeId === startId && path.length > 1) {
+      if (nextNodeId === startId && (path.length > 1 || edge.source === edge.target)) {
         const cycle = canonicalCycle([...path, startId]);
         const key = cycle.join(">");
         if (!seenCycles.has(key)) {
@@ -186,7 +198,13 @@ function oppositeNode(
 }
 
 function filteredEdges(edges: FlowEdge[], allowedEdgeTypes?: Set<FlowEdgeType>): FlowEdge[] {
-  return sortedEdges(edges).filter((edge) => !allowedEdgeTypes || allowedEdgeTypes.has(edge.type));
+  const uniqueEdges = new Map<string, FlowEdge>();
+  for (const edge of edges) {
+    uniqueEdges.set(edge.id, edge);
+  }
+  return sortedEdges([...uniqueEdges.values()]).filter(
+    (edge) => !allowedEdgeTypes || allowedEdgeTypes.has(edge.type),
+  );
 }
 
 function sortedNodes(nodes: FlowNode[]): FlowNode[] {

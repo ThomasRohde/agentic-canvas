@@ -152,6 +152,12 @@ function deleteObjects(scene: Scene, ids: string[]): string[] {
       (edge.targetPort && idSet.has(`${edge.target}#${edge.targetPort}`))
     ) {
       deleted.push(edge.id);
+      if (idSet.has(edge.id) && edge.type === "contains") {
+        const target = document.nodes.find((node) => node.id === edge.target);
+        if (target?.parentId === edge.source) {
+          target.parentId = undefined;
+        }
+      }
       return false;
     }
     return true;

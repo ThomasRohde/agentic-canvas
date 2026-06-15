@@ -78,6 +78,9 @@ describe("Flow browser renderer helpers", () => {
 
     expect(edge.sourceHandle).toBe("source:out");
     expect(edge.targetHandle).toBe("target:in");
+    expect(
+      toReactFlowEdge({ id: "loop", type: "calls", source: "node_a", target: "node_a" }).type,
+    ).toBe("flowSelfLoop");
     expect(document).toMatchObject({
       type: "agentic-flow",
       version: 1,

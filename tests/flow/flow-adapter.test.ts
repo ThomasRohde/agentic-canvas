@@ -36,6 +36,7 @@ describe("Flow adapter", () => {
         target: "database",
         label: "writes",
       },
+      { id: "unlabeled", type: "calls", source: "service", target: "database" },
     ],
   };
 
@@ -47,6 +48,7 @@ describe("Flow adapter", () => {
       ["service", "node", "flow.node.service"],
       ["database", "node", "flow.node.database"],
       ["edge", "edge", "flow.edge.writes"],
+      ["unlabeled", "edge", "flow.edge.calls"],
       ["service#out", "port", "flow.port"],
     ]);
     expect(listFlowObjects(document, "service").map((object) => object.id)).toEqual(["service"]);
@@ -58,7 +60,7 @@ describe("Flow adapter", () => {
 
   it("returns references for nodes, edges, and ports", () => {
     expect(getFlowObject(document, "service")?.references).toMatchObject({
-      outgoingEdgeIds: ["edge"],
+      outgoingEdgeIds: ["edge", "unlabeled"],
       portIds: ["service#out"],
       parentId: "boundary",
     });
@@ -70,6 +72,15 @@ describe("Flow adapter", () => {
     expect(getFlowObject(document, "service#out")?.references).toMatchObject({
       nodeId: "service",
       outgoingEdgeIds: ["edge"],
+    });
+  });
+
+  it("separates authored edge labels from display labels", () => {
+    expect(getFlowObject(document, "unlabeled")).toMatchObject({
+      id: "unlabeled",
+      label: undefined,
+      text: undefined,
+      displayLabel: "calls",
     });
   });
 });

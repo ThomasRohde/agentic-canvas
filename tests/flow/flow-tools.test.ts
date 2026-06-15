@@ -35,10 +35,13 @@ describe("Flow MCP tools", () => {
           arguments: { type: "service", label: "Authorization" },
         }),
       );
-      await client.callTool({
-        name: "add_port",
-        arguments: { nodeId: checkout.id, id: "out", direction: "out", side: "right" },
-      });
+      const checkoutPort = jsonContent<{ object: { id: string; kind: string } }>(
+        await client.callTool({
+          name: "add_port",
+          arguments: { nodeId: checkout.id, id: "out", direction: "out", side: "right" },
+        }),
+      );
+      expect(checkoutPort.object).toMatchObject({ id: `${checkout.id}#out`, kind: "port" });
       await client.callTool({
         name: "add_port",
         arguments: { nodeId: auth.id, id: "in", direction: "in", side: "left" },
@@ -88,10 +91,11 @@ describe("Flow MCP tools", () => {
         ).paths[0].nodeIds,
       ).toEqual([checkout.id, auth.id]);
       expect(
-        jsonContent<{ valid: boolean; stats: { nodeCount: number; edgeCount: number } }>(
-          await client.callTool({ name: "validate_flow", arguments: {} }),
-        ),
-      ).toMatchObject({ valid: true, stats: { nodeCount: 2, edgeCount: 1 } });
+        jsonContent<{
+          valid: boolean;
+          stats: { nodeCount: number; edgeCount: number; cycleCount: number };
+        }>(await client.callTool({ name: "validate_flow", arguments: {} })),
+      ).toMatchObject({ valid: true, stats: { nodeCount: 2, edgeCount: 1, cycleCount: 0 } });
     } finally {
       await close();
     }
@@ -132,6 +136,116 @@ describe("Flow MCP tools", () => {
       });
       expect((invalid as { isError?: boolean }).isError).toBe(true);
       expect(textContent(invalid)).toMatch(/source port cannot be in-only/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("returns missing port errors without leaking generated edge ids", async () => {
+    const { client, close } = await connectFlow(workspace);
+
+    try {
+      const source = jsonContent<{ id: string }>(
+        await client.callTool({
+          name: "add_flow_node",
+          arguments: { type: "service", label: "Source" },
+        }),
+      );
+      const target = jsonContent<{ id: string }>(
+        await client.callTool({
+          name: "add_flow_node",
+          arguments: { type: "service", label: "Target" },
+        }),
+      );
+
+      const invalid = await client.callTool({
+        name: "connect_flow_nodes",
+        arguments: { source: source.id, target: target.id, targetPort: "missing" },
+      });
+
+      expect((invalid as { isError?: boolean }).isError).toBe(true);
+      expect(textContent(invalid)).toBe(`Target port ${target.id}#missing does not exist`);
+      expect(textContent(invalid)).not.toMatch(/edge_[0-9a-f]/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("surfaces self-loops through graph tools and strict domain validation", async () => {
+    const { client, close } = await connectFlow(workspace);
+
+    try {
+      await client.callTool({
+        name: "apply_flow_patch",
+        arguments: {
+          createNodes: [{ id: "svc", type: "service", label: "Service", x: 0, y: 0 }],
+          createEdges: [{ id: "loop", type: "calls", source: "svc", target: "svc" }],
+        },
+      });
+
+      expect(
+        jsonContent<{ cycles: string[][] }>(
+          await client.callTool({ name: "find_cycles", arguments: {} }),
+        ).cycles,
+      ).toEqual([["svc", "svc"]]);
+      expect(
+        jsonContent<{ paths: Array<{ nodeIds: string[]; edgeIds: string[] }> }>(
+          await client.callTool({ name: "find_paths", arguments: { from: "svc", to: "svc" } }),
+        ).paths,
+      ).toEqual([
+        { nodeIds: ["svc"], edgeIds: [] },
+        { nodeIds: ["svc", "svc"], edgeIds: ["loop"] },
+      ]);
+
+      const validation = jsonContent<{
+        valid: boolean;
+        errors: Array<{ code: string }>;
+        stats: { cycleCount: number };
+      }>(
+        await client.callTool({
+          name: "validate_flow",
+          arguments: { mode: "strict", domainRules: true },
+        }),
+      );
+      expect(validation.valid).toBe(false);
+      expect(validation.errors.map((error) => error.code)).toContain("edge.selfLoop");
+      expect(validation.stats.cycleCount).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it("reconciles contains edges with structural parent ids", async () => {
+    const { client, close, controller } = await connectFlow(workspace);
+
+    try {
+      await client.callTool({
+        name: "apply_flow_patch",
+        arguments: {
+          createNodes: [
+            { id: "boundary", type: "boundary", label: "Boundary", x: 0, y: 0 },
+            { id: "child", type: "service", label: "Child", x: 80, y: 80 },
+          ],
+        },
+      });
+      await client.callTool({
+        name: "connect_flow_nodes",
+        arguments: { source: "boundary", target: "child", type: "contains" },
+      });
+
+      expect(controller.getObject("child")?.references).toMatchObject({ parentId: "boundary" });
+
+      await client.callTool({
+        name: "update_flow_node",
+        arguments: { id: "child", parentId: null },
+      });
+
+      expect(controller.getObject("child")?.references).toMatchObject({ parentId: undefined });
+      expect(
+        jsonContent<{ ids: string[] }>(
+          await client.callTool({ name: "find_flow_edges", arguments: { type: "contains" } }),
+        ).ids,
+      ).toEqual([]);
     } finally {
       await close();
     }

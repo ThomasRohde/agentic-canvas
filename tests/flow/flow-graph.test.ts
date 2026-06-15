@@ -53,4 +53,19 @@ describe("Flow graph algorithms", () => {
   it("finds representative cycles", () => {
     expect(findCycles(document).some((cycle) => cycle.join(">") === "a>b>c>a")).toBe(true);
   });
+
+  it("reports self-loops as cycles and same-node paths", () => {
+    const selfLoopDocument: FlowDocument = {
+      type: "agentic-flow",
+      version: 1,
+      nodes: [{ id: "a", type: "service", label: "A", x: 0, y: 0 }],
+      edges: [{ id: "aa", type: "calls", source: "a", target: "a" }],
+    };
+
+    expect(findCycles(selfLoopDocument)).toEqual([["a", "a"]]);
+    expect(findPaths(selfLoopDocument, "a", "a")).toEqual([
+      { nodeIds: ["a"], edgeIds: [] },
+      { nodeIds: ["a", "a"], edgeIds: ["aa"] },
+    ]);
+  });
 });

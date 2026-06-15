@@ -67,6 +67,16 @@ describe("baseline MCP tools", () => {
       );
       expect(object.id).toBe(created.id);
 
+      const missingObject = await client.callTool({
+        name: "get_object",
+        arguments: { id: "missing-object-id" },
+      });
+      expect((missingObject as { isError?: boolean }).isError).toBe(true);
+      expect(JSON.parse(textContent(missingObject))).toEqual({
+        error: "Object not found: missing-object-id",
+        missingIds: ["missing-object-id"],
+      });
+
       const selected = jsonContent<{
         version: number;
         selectedIds: string[];

@@ -205,7 +205,12 @@ Plugins that do not implement the shared shape-object contract should omit
 `find_objects`, `apply_canvas_patch`, and `set_canvas_background` are not
 registered. Flow intentionally follows this model because its typed nodes, ports,
 edges, validation, traversal, and Mermaid export are better represented by
-Flow-specific tools than by generic shape operations.
+Flow-specific tools than by generic shape operations. Flow uses `parentId` as the
+structural containment source of truth; `contains` edges are optional mirrors and
+must agree with it. Flow self-loops are allowed in basic mode, but they are visible
+to path/cycle queries and are reported as errors by strict/domain validation.
+Mermaid export preserves boundary containment with `subgraph` blocks and escapes
+labels for Mermaid syntax.
 
 ## Verification Checklist
 

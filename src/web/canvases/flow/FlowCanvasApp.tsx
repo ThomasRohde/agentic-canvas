@@ -1,9 +1,12 @@
 import {
   Background,
+  BaseEdge,
   type Connection,
   Controls,
   type Edge,
   type EdgeChange,
+  EdgeLabelRenderer,
+  type EdgeProps,
   Handle,
   MarkerType,
   MiniMap,
@@ -322,6 +325,7 @@ function FlowCanvasSurface({ mcpUrl }: FlowCanvasAppProps) {
   };
 
   const nodeTypes = useMemo(() => ({ flowNode: FlowNodeCard, boundary: FlowBoundaryNode }), []);
+  const edgeTypes = useMemo(() => ({ flowSelfLoop: FlowSelfLoopEdge }), []);
   const selectedNode = nodes.find((node) => node.id === inspectorId);
   const selectedEdge = edges.find((edge) => edge.id === inspectorId);
 
@@ -332,6 +336,7 @@ function FlowCanvasSurface({ mcpUrl }: FlowCanvasAppProps) {
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -598,6 +603,7 @@ export function toReactFlowEdges(edges: FlowEdge[]): FlowGraphEdge[] {
 export function toReactFlowEdge(edge: FlowEdge, selected?: boolean): FlowGraphEdge {
   return {
     id: edge.id,
+    type: edge.source === edge.target ? "flowSelfLoop" : undefined,
     source: edge.source,
     target: edge.target,
     sourceHandle: edge.sourcePort ? flowPortToReactHandle("source", edge.sourcePort) : undefined,
@@ -609,6 +615,49 @@ export function toReactFlowEdge(edge: FlowEdge, selected?: boolean): FlowGraphEd
     markerStart: edge.direction === "bidirectional" ? { type: MarkerType.ArrowClosed } : undefined,
     data: { raw: edge },
   };
+}
+
+function FlowSelfLoopEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  markerEnd,
+  markerStart,
+  label,
+  selected,
+}: EdgeProps) {
+  const right = Math.max(sourceX, targetX) + 96;
+  const top = Math.min(sourceY, targetY) - 88;
+  const bottom = Math.max(sourceY, targetY) + 88;
+  const path = `M ${sourceX} ${sourceY} C ${right} ${top}, ${right} ${bottom}, ${targetX} ${targetY}`;
+  const labelX = right + 8;
+  const labelY = (top + bottom) / 2;
+  const labelText = typeof label === "string" ? label : undefined;
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        markerEnd={markerEnd}
+        markerStart={markerStart}
+        style={{ strokeWidth: selected ? 2.5 : 1.75 }}
+      />
+      {labelText ? (
+        <EdgeLabelRenderer>
+          <div
+            className="flow-self-loop-label"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+          >
+            {labelText}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  );
 }
 
 export function toFlowDocument(nodes: FlowGraphNode[], edges: FlowGraphEdge[]): FlowDocument {

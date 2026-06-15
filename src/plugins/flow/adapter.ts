@@ -94,13 +94,15 @@ export function summarizeNode(node: FlowNode): CanvasObjectSummary {
 }
 
 export function summarizeEdge(edge: FlowEdge): CanvasObjectSummary {
+  const authoredLabel = edge.label?.trim() ? edge.label : undefined;
   return {
     id: edge.id,
     type: edge.type,
     pluginType: `flow.edge.${edge.type}`,
     kind: "edge",
-    text: edge.label ?? edge.type,
-    label: edge.label ?? edge.type,
+    text: authoredLabel,
+    label: authoredLabel,
+    displayLabel: authoredLabel ?? edge.type,
   };
 }
 
