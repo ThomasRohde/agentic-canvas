@@ -643,7 +643,11 @@ function validateGraphRules(document: FlowDocument, context: ValidationContext):
   validateContainment(document, context);
 
   for (const node of document.nodes) {
-    if ((incoming.get(node.id) ?? []).length === 0 && (outgoing.get(node.id) ?? []).length === 0) {
+    if (
+      node.type !== "boundary" &&
+      (incoming.get(node.id) ?? []).length === 0 &&
+      (outgoing.get(node.id) ?? []).length === 0
+    ) {
       addWarning(context, "node.orphan", `Node ${node.id} is orphaned`, {
         objectId: node.id,
         objectKind: "node",

@@ -251,6 +251,45 @@ describe("Flow MCP tools", () => {
     }
   });
 
+  it("does not report populated boundaries as validate_flow orphans", async () => {
+    const { client, close } = await connectFlow(workspace);
+
+    try {
+      await client.callTool({
+        name: "apply_flow_patch",
+        arguments: {
+          createNodes: [
+            { id: "boundary", type: "boundary", label: "Boundary", x: 0, y: 0 },
+            {
+              id: "child",
+              type: "service",
+              label: "Child",
+              x: 80,
+              y: 80,
+              parentId: "boundary",
+            },
+            { id: "target", type: "service", label: "Target", x: 360, y: 80 },
+          ],
+          createEdges: [{ id: "child_target", type: "calls", source: "child", target: "target" }],
+        },
+      });
+
+      const validation = jsonContent<{
+        warnings: Array<{ code: string; objectId?: string }>;
+        stats: { orphanNodeCount: number };
+      }>(await client.callTool({ name: "validate_flow", arguments: {} }));
+
+      expect(validation.stats.orphanNodeCount).toBe(0);
+      expect(validation.warnings).toEqual(
+        expect.not.arrayContaining([
+          expect.objectContaining({ code: "node.orphan", objectId: "boundary" }),
+        ]),
+      );
+    } finally {
+      await close();
+    }
+  });
+
   it("applies patches atomically and returns optional objects", async () => {
     const { client, close, controller } = await connectFlow(workspace);
 

@@ -6,6 +6,12 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.6.2 - 2026-06-16
+
+- Fixed Flow validation so populated boundary containers no longer emit
+  spurious `node.orphan` warnings when `validate_flow` reports
+  `stats.orphanNodeCount: 0`.
+
 ## 0.6.1 - 2026-06-15
 
 - Fixed Flow Mermaid export escaping and boundary export so labels with Mermaid

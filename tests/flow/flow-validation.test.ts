@@ -160,4 +160,26 @@ describe("Flow validation", () => {
     expect(strict.valid).toBe(false);
     expect(strict.errors.map((error) => error.code)).toContain("contains.parent.mismatch");
   });
+
+  it("does not report populated boundaries as orphan nodes", () => {
+    const result = validateFlowDocument({
+      type: "agentic-flow",
+      version: 1,
+      nodes: [
+        { id: "boundary", type: "boundary", label: "Boundary", x: 0, y: 0 },
+        { id: "child", type: "service", label: "Child", x: 80, y: 80, parentId: "boundary" },
+      ],
+      edges: [],
+    });
+
+    expect(result.warnings).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ code: "node.orphan", objectId: "boundary" }),
+      ]),
+    );
+    expect(result.warnings.map((warning) => warning.code)).not.toContain("boundary.empty");
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "node.orphan", objectId: "child" })]),
+    );
+  });
 });
